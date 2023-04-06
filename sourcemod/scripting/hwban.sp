@@ -128,6 +128,7 @@ public Action Timer_ProcessQueue(Handle tmr, any data)
                         currentUserId = GetClientUserId(client);
                         PrintToServer("Processing queued client %N", client);
                         CheckClientConVar(client);
+			return Plugin_Continue;
                 }
         }
         return Plugin_Continue;
