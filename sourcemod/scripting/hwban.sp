@@ -2,24 +2,32 @@
 #include <regex>
 #include <filenetwork>
 #include <sourcebanspp>
+
+
 #define FINGERPRINT "materials/models/player/custom.vmt"
 #define FINGERPRINT_DOWNLOAD "download/materials/models/player/custom.vmt"
 #define BAN_REASON "[ReBanner] Alternative account detected"
+#define FINGERPRINT_FILEPATH_CONFIG "configs/rebanner/fingerprint_path.txt"
 #define ANTITAMPER_ACTION_REASON "File tampering detected! Please re-download server files"
+#define LOGFILE "logs/rebanner.log"
 #define INVALID_USERID -1
 
 Database db;
 
-StringMap bannedFingerprints;
-StringMap steamIDToFingerprintTable;
-StringMap ipToFingerprintTable;
-StringMap fingerprintTable;
-StringMap loadedFingerprints; //used to keep track of all fingerprints so we can delete the datapacks that fingerprintTable contain at map end
+StringMap bannedFingerprints; //contains all banned fingerprints
+StringMap steamIDToFingerprintTable; //StringMap representation of rebanner_steamids table
+StringMap ipToFingerprintTable;//StringMap representation of rebanner_ips table
+StringMap fingerprintTable;//StringMap representation of rebanner_fingerprints table
+StringMap loadedFingerprints; //used to keep track of all fingerprints so we can delete the datapacks that fingerprintTable contains at map end
 
 ConVar rebanDuration;
 ConVar antiTamperMode;
 ConVar antiTamperAction;
 ConVar shouldCheckIP;
+ConVar logLevel;
+
+File logFile;
+char logFilePath[PLATFORM_MAX_PATH];
 
 Handle globalQueueTimer;
 
@@ -29,30 +37,52 @@ int currentUserId = INVALID_USERID;
 
 int fingerprintCounter = 0;
 
-enum QueueState {
+enum QueueState
+{
         QueueState_Ignore = 0,
         QueueState_Queued = 1
 }
 
-enum TableType {
+enum TableType
+{
         TableType_Fingerprints = 0,
         TableType_SteamIDs = 1,
         TableType_IPs = 2
 }
 
+enum LogLevel
+{
+        LogLevel_None = 0,
+        LogLevel_Bans,
+        LogLevel_Associations,
+        LogLevel_Debug
+}
+
+static char logLevelDefinitions[4][32] = {"[NONE]", "[BAN EVENT]", "[ASSOCIATION]", "[DEBUG]"};
+
 QueueState clientQueueState[MAXPLAYERS+1];
+
+void WriteLog(const char[] message, LogLevel level)
+{
+        LogLevel currentLogLevel = view_as<LogLevel>(logLevel.IntValue);
+        if(currentLogLevel >= level)
+        {
+                logFile.WriteLine("%s %s", logLevelDefinitions[level], message);
+                logFile.Flush();
+        }
+
+}
 
 public Plugin myinfo =
 {
         name = "SourceMod Re-Banner",
         author = "Nolo001",
         description = "Detects and re-bans alt accounts of banned players through fingerprinting",
-        version = "0.9.1 Dev"
+        version = "0.9.2 Dev"
 };
 
 public void OnPluginStart()
 {     
-
         bannedFingerprints = new StringMap();
         steamIDToFingerprintTable = new StringMap();
         ipToFingerprintTable = new StringMap();
@@ -62,11 +92,59 @@ public void OnPluginStart()
         for(int client = 1; client<=MaxClients; client++)
                 clientQueueState[client] = QueueState_Ignore;
 
-        RegConsoleCmd("sm_banfp", Command_BanFingerprint);
+        RegAdminCmd("rb_unbansteam", Command_UnbanBySteamID, ADMFLAG_UNBAN, "Remove the ban flag on a fingerprint via a SteamID");
+        RegAdminCmd("rb_unbanip", Command_UnbanByIP, ADMFLAG_UNBAN, "Remove the ban flag on a fingerprint via an IP address");
+
+
+        logLevel = CreateConVar("rb_log_level", "1", "Logging level. 0 - disable. 1 - log alt account bans, 2 - also log associations, 3 - log everything(debug).")
         shouldCheckIP = CreateConVar("rb_check_ip", "1", "Should IP addresses be taken into account? 0 - no, 1 - yes (RECOMMENDED)");
-        antiTamperAction = CreateConVar("rb_antitamper_action", "1", "Action taken when tampering is detected. 0 - do nothing, 1 - kick");
-        antiTamperMode = CreateConVar("rb_antitamper_mode", "1", "Anti-tamper system mode. 0 - disable (DANGEROUS), 1 - check fingerprints for tampering, 2 - Also check if client fingerprint is recognized");
-        rebanDuration = CreateConVar("rb_reban_type", "1", "How long should alts be re-banned for? 1 - same duration as original ban, 0 - remaining duration of the original ban");
+        antiTamperAction = CreateConVar("rb_antitamper_action", "1", "Action taken when fingerprint tampering is detected. 0 - do nothing, 1 - kick");
+        antiTamperMode = CreateConVar("rb_antitamper_mode", "1", "Anti-tamper mode. 0 - disable (DANGEROUS), 1 - check fingerprints for tampering, 2 - Also check if client fingerprint is known by the server");
+        rebanDuration = CreateConVar("rb_reban_type", "0", "How long should alts be re-banned for? 1 - same duration as original ban, 0 - remaining duration of the original ban");
+        BuildPath(Path_SM, logFilePath, PLATFORM_MAX_PATH, LOGFILE);
+        logFile = OpenFile(logFilePath, "a");
+}
+
+public Action Command_UnbanBySteamID(int client, int args)
+{
+        if(args != 1)
+        {
+                PrintToChat(client, "You need to provide a SteamID (STEAM_X:X:XXXXXXXXX).");
+                return Plugin_Handled;
+        }
+        char steamid[64];
+        GetCmdArg(1, steamid, sizeof(steamid));
+        if(TryUnbanBySteamIDOrIP(steamid))
+        {
+                PrintToChat(client, "Successfully removed ban record from SteamID %s.", steamid);
+                return Plugin_Handled;
+        }
+        else
+        {
+                PrintToChat(client, "Failed to match %s to a known fingerprint or it's not banned. Aborting.", steamid);
+                return Plugin_Handled;                
+        }
+}
+
+public Action Command_UnbanByIP(int client, int args)
+{
+        if(args != 1)
+        {
+                PrintToChat(client, "You need to provide an IP address.");
+                return Plugin_Handled;
+        }
+        char ip[64];
+        GetCmdArg(1, ip, sizeof(ip));
+        if(TryUnbanBySteamIDOrIP("", ip))
+        {
+                PrintToChat(client, "Successfully removed ban record from IP address %s.", ip);
+                return Plugin_Handled;
+        }
+        else
+        {
+                PrintToChat(client, "Failed to match %s to a known fingerprint or it's not banned. Aborting.", ip);
+                return Plugin_Handled;                
+        }
 }
 
 public void OnMapStart()
@@ -75,7 +153,7 @@ public void OnMapStart()
         fingerprintCounter = 0;
         globalLocked = true;
         currentUserId = INVALID_USERID;
-        Database.Connect(OnDatabaseConnected, "hwbans", 0);
+        Database.Connect(OnDatabaseConnected, "rebanner", 0);
         globalQueueTimer = CreateTimer(0.5, Timer_ProcessQueue, _, TIMER_FLAG_NO_MAPCHANGE | TIMER_REPEAT);
 }
 
@@ -109,6 +187,49 @@ public void OnMapEnd()
         loadedFingerprints.Clear();
 }
 
+bool TryUnbanBySteamIDOrIP(const char[] steamid="", const char[] ip="")
+{
+        if(steamid[0])
+        {
+                if(steamIDToFingerprintTable.ContainsKey(steamid))
+                {
+                        char fingerprint[128];
+                        steamIDToFingerprintTable.GetString(steamid, fingerprint, sizeof(fingerprint));
+                        if(bannedFingerprints.ContainsKey(fingerprint))
+                        {
+                                bannedFingerprints.Remove(fingerprint);
+                                char logMessage[128];
+                                Format(logMessage, sizeof(logMessage), "Removing ban flag from %s", steamid);
+                                WriteLog(logMessage, LogLevel_Debug);
+                                char query[512];
+                                Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET is_banned = 0, banned_duration = 0, banned_timestamp = 0 WHERE fingerprint = '%s'", fingerprint);
+                                db.Query(ClientBanRecordRemoved, query);
+                                return true;
+                        }
+                }
+        }
+        if(ip[0])
+        {
+                if(ipToFingerprintTable.ContainsKey(ip))
+                {
+                        char fingerprint[128];
+                        ipToFingerprintTable.GetString(ip, fingerprint, sizeof(fingerprint));
+                        if(bannedFingerprints.ContainsKey(fingerprint))
+                        {
+                                bannedFingerprints.Remove(fingerprint);
+                                char logMessage[128];
+                                Format(logMessage, sizeof(logMessage), "Removing ban flag from %s", ip);
+                                WriteLog(logMessage, LogLevel_Debug);
+                                char query[512];
+                                Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET is_banned = 0, banned_duration = 0, banned_timestamp = 0 WHERE fingerprint = '%s'", fingerprint);
+                                db.Query(ClientBanRecordRemoved, query);
+                                return true;
+                        }
+                }          
+        }
+        return false;
+}
+
 public void SBPP_OnBanPlayer(int iAdmin, int iTarget, int iTime, const char[] sReason)
 {
         processBanEvent(iTarget, iTime);
@@ -118,12 +239,14 @@ void processBanEvent(int client, int time)
 {
         char query[512], steamid[64];
         GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid));
-        PrintToServer("Processing client ban");
+        char logMessage[128];
+        Format(logMessage, sizeof(logMessage), "Processing ban event of %N", client);
+        WriteLog(logMessage, LogLevel_Bans);
         if(steamIDToFingerprintTable.ContainsKey(steamid))
         {
                 char fingerprint[128];
                 steamIDToFingerprintTable.GetString(steamid, fingerprint, sizeof(fingerprint));
-                Format(query, sizeof(query), "UPDATE hwbans_fingerprints SET banned_duration = %i, banned_timestamp = %i, is_banned = 1 WHERE fingerprint = '%s'", time, GetTime(), fingerprint);
+                Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET banned_duration = %i, banned_timestamp = %i, is_banned = 1 WHERE fingerprint = '%s'", time, GetTime(), fingerprint);
                 db.Query(OnBanClient_Query_Finished, query, time);
                 bannedFingerprints.SetString(fingerprint, "", false);
         }
@@ -138,7 +261,9 @@ public Action OnBanClient(int client, int time, int flags, const char[] reason, 
 
 public void OnBanClient_Query_Finished(Database dtb, DBResultSet results, const char[] error, int duration)
 {
-        PrintToServer("Successfully inserted ban data.");
+        char logMessage[128];
+        Format(logMessage, sizeof(logMessage), "Successfully flagged as banned. Duration is %i", duration);
+        WriteLog(logMessage, LogLevel_Bans);
 }
 
 public Action Timer_ProcessQueue(Handle tmr, any data)
@@ -155,22 +280,14 @@ public Action Timer_ProcessQueue(Handle tmr, any data)
                 {
                         globalLocked = true;
                         currentUserId = GetClientUserId(client);
-                        PrintToServer("Processing queued client %N", client);
+                        char logMessage[128];
+                        Format(logMessage, sizeof(logMessage), "Processing queued client %N", client);
+                        WriteLog(logMessage, LogLevel_Debug);
                         CheckClientConVar(client);
                         return Plugin_Continue;
                 }
         }
         return Plugin_Continue;
-}
-
-
-public Action Command_BanFingerprint(int client, int args)
-{
-        char arg[256];
-        GetCmdArg(1, arg, sizeof(arg));
-        MarkFingerprintAsBanned(arg);
-
-        return Plugin_Handled;
 }
 
 public void OnDatabaseConnected(Database database, const char[] error, any data)
@@ -179,9 +296,9 @@ public void OnDatabaseConnected(Database database, const char[] error, any data)
                 SetFailState("Database failure: %s", error);
 
         db = database;
-        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'hwbans_fingerprints' (fingerprint TEXT PRIMARY KEY, steamid2 TEXT, is_banned INTEGER, banned_duration INTEGER, banned_timestamp INTEGER, ip TEXT)", TableType_Fingerprints);
-        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'hwbans_steamids' (steamid2 TEXT PRIMARY KEY, fingerprint TEXT)", TableType_SteamIDs);
-        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'hwbans_ips' (ip TEXT PRIMARY KEY, fingerprint TEXT)", TableType_IPs);
+        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_fingerprints' (fingerprint TEXT PRIMARY KEY, steamid2 TEXT, is_banned INTEGER, banned_duration INTEGER, banned_timestamp INTEGER, ip TEXT)", TableType_Fingerprints);
+        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_steamids' (steamid2 TEXT PRIMARY KEY, fingerprint TEXT)", TableType_SteamIDs);
+        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_ips' (ip TEXT PRIMARY KEY, fingerprint TEXT)", TableType_IPs);
 }
 
 
@@ -194,15 +311,15 @@ public void OnDatabaseStructureCreated(Handle owner, Handle hndl, const char[] e
         {
                 case TableType_Fingerprints:
                 {
-                        db.Query(ParseDatabaseRecords, "SELECT fingerprint, steamid2, is_banned, banned_duration, banned_timestamp, ip FROM hwbans_fingerprints", TableType_Fingerprints);
+                        db.Query(ParseDatabaseRecords, "SELECT fingerprint, steamid2, is_banned, banned_duration, banned_timestamp, ip FROM rebanner_fingerprints", TableType_Fingerprints);
                 }
                 case TableType_SteamIDs:
                 {
-                        db.Query(ParseDatabaseRecords, "SELECT steamid2, fingerprint FROM hwbans_steamids", TableType_SteamIDs);
+                        db.Query(ParseDatabaseRecords, "SELECT steamid2, fingerprint FROM rebanner_steamids", TableType_SteamIDs);
                 }
                 case TableType_IPs:
                 {
-                        db.Query(ParseDatabaseRecords, "SELECT ip, fingerprint FROM hwbans_ips", TableType_IPs);
+                        db.Query(ParseDatabaseRecords, "SELECT ip, fingerprint FROM rebanner_ips", TableType_IPs);
                 }
         }
 }
@@ -214,8 +331,6 @@ public void ParseDatabaseRecords(Database dtb, DBResultSet results, const char[]
 
         while(results.FetchRow())
         {
-                PrintToServer("Fetching rows...");
-
                 switch(tableType)
                 {
                         case TableType_Fingerprints:
@@ -234,7 +349,7 @@ public void ParseDatabaseRecords(Database dtb, DBResultSet results, const char[]
                                 pack.WriteCell(results.FetchInt(4)); //banned_timestamp, int
                                 results.FetchString(5, ips, sizeof(ips));
                                 pack.WriteString(ips);
-                                PrintToServer("Setting fingerprint datapack. Result is %b", fingerprintTable.SetValue(fingerprint, pack));
+                                fingerprintTable.SetValue(fingerprint, pack);
                                 char key[16];
                                 IntToString(fingerprintCounter, key, sizeof(key));
                                 loadedFingerprints.SetString(key, fingerprint);
@@ -249,7 +364,7 @@ public void ParseDatabaseRecords(Database dtb, DBResultSet results, const char[]
 
                                 results.FetchString(0, steamId, sizeof(steamId));  //steamID2
                                 results.FetchString(1, fingerprint, sizeof(fingerprint));  //fingerprint string
-                                PrintToServer("Setting steamid to fp relation. Result is %b", steamIDToFingerprintTable.SetString(steamId, fingerprint));
+                                steamIDToFingerprintTable.SetString(steamId, fingerprint);
                         }
                         case TableType_IPs:
                         {
@@ -260,7 +375,7 @@ public void ParseDatabaseRecords(Database dtb, DBResultSet results, const char[]
 
                                 results.FetchString(0, ip, sizeof(ip));  //IP address
                                 results.FetchString(1, fingerprint, sizeof(fingerprint));  //fingerprint string
-                                PrintToServer("Setting ip to fp relation. Result is %b", ipToFingerprintTable.SetString(ip, fingerprint));
+                                ipToFingerprintTable.SetString(ip, fingerprint);
                         }
                 }
         }
@@ -271,13 +386,13 @@ public void ParseDatabaseRecords(Database dtb, DBResultSet results, const char[]
 stock void MarkFingerprintAsBanned(const char[] fingerprint)
 {
         char buffer[1024];
-        Format(buffer, sizeof(buffer), "UPDATE hwbans_fingerprints SET is_banned = 1 WHERE fingerprint = '%s'", fingerprint);
+        Format(buffer, sizeof(buffer), "UPDATE rebanner_fingerprints SET is_banned = 1 WHERE fingerprint = '%s'", fingerprint);
         db.Query(OnFingerprintMarkedAsBanned, buffer);
 }
 
 public void OnFingerprintMarkedAsBanned(Database dtb, DBResultSet results, const char[] error, any data)
 {
-        PrintToServer("Marked fingerprint as banned. Error: %s", error);
+
 }
 
 public void OnClientPostAdminCheck(int client)
@@ -316,9 +431,11 @@ void RemoveBanRecordIfExists(int client)
                 return;
 
         bannedFingerprints.Remove(fingerpint);
-        PrintToServer("Removing client ban flag");
+        char logMessage[128];
+        Format(logMessage, sizeof(logMessage), "Removing ban flag of %N", client);
+        WriteLog(logMessage, LogLevel_Bans);
         char query[512];
-        Format(query, sizeof(query), "UPDATE hwbans_fingerprints SET is_banned = 0, banned_duration = 0, banned_timestamp = 0 WHERE fingerprint = '%s'", fingerpint);
+        Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET is_banned = 0, banned_duration = 0, banned_timestamp = 0 WHERE fingerprint = '%s'", fingerpint);
         db.Query(ClientBanRecordRemoved, query);
 }
 
@@ -360,7 +477,9 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
         char clientFingerprint[256];
         fingerprintFile.ReadLine(clientFingerprint, sizeof(clientFingerprint));
         fingerprintFile.Close();
-        PrintToServer("Processing existing fp of %N, Fingerprint is %s", client, clientFingerprint);
+        char logMessage[128];
+        Format(logMessage, sizeof(logMessage), "Processing existing fingerprint %s of client %N", clientFingerprint, client);
+        WriteLog(logMessage, LogLevel_Debug);
         DeleteFile(FINGERPRINT_DOWNLOAD);
         clientQueueState[client] = QueueState_Ignore;
         globalLocked = false;
@@ -379,7 +498,6 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
         GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid));
         GetClientIP(client, ip, sizeof(ip));
 
-
         if(steamIDToFingerprintTable.ContainsKey(steamid) || ipToFingerprintTable.ContainsKey(ip)) // we recognize this client by IP or SteamID, we know their fingerprint. 
         {                                                                                               //Make sure to store their IP/SteamID if we don't have such a match
                 if(steamIDToFingerprintTable.ContainsKey(steamid)) //if we matched by steamid
@@ -389,12 +507,13 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
 
                         if(!ipToFingerprintTable.ContainsKey(ip)) //and if we haven't recorded this IP yet
                         {
-                                Format(query, sizeof(query), "INSERT INTO hwbans_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, knownFingerprint);
+                                Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, knownFingerprint);
                                 db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
+                                char logMessage[128];
+                                Format(logMessage, sizeof(logMessage), "Adding new IP (%s) association for client %N", ip, client);
+                                WriteLog(logMessage, LogLevel_Associations);
                                 UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(knownFingerprint, "", ip);
                         }
-
-
 
                         if(bannedFingerprints.ContainsKey(knownFingerprint)) //if this known fingerprint is banned, execute em
                                 RebanClient(client, knownFingerprint);
@@ -409,8 +528,11 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
 
                         if(!steamIDToFingerprintTable.ContainsKey(steamid)) //and if we haven't recorded this SteamID yet
                         {
-                                Format(query, sizeof(query), "INSERT INTO hwbans_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid, knownFingerprint);
+                                Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid, knownFingerprint);
                                 db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
+                                char logMessage[128];
+                                Format(logMessage, sizeof(logMessage), "Adding new SteamID (%s) association for client %N", steamid, client);
+                                WriteLog(logMessage, LogLevel_Associations);
                                 UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(knownFingerprint, steamid, "");
                         }
                         if(bannedFingerprints.ContainsKey(knownFingerprint)) //if this known fingerprint is banned, execute em
@@ -433,13 +555,13 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                                 return;
                         }
                 }
-                Format(query, sizeof(query), "INSERT INTO hwbans_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid, fingerprint);
+                Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid, fingerprint);
                 db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
                 steamIDToFingerprintTable.SetString(steamid, fingerprint);
 
                 if(shouldCheckIP.BoolValue)
                 {
-                        Format(query, sizeof(query), "INSERT INTO hwbans_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, fingerprint);
+                        Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
 
                         UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid, ip);
@@ -483,12 +605,10 @@ void UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(const char[] fingerprint, 
                 steamIDToFingerprintTable.SetString(steamid, fingerprint);  
                 char steamidString[256];
                 DataPack pack = new DataPack();
-                PrintToServer("Reading fingerprint datapack. Result is %b", fingerprintTable.GetValue(fingerprint, pack));
                 pack.Reset();
                 pack.ReadString(steamidString, sizeof(steamidString));
 
-                Format(query, sizeof(query), "UPDATE hwbans_fingerprints SET steamid2 = '%s;%s' WHERE fingerprint = '%s'", steamidString, steamid, fingerprint);
-                PrintToServer(query);
+                Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET steamid2 = '%s;%s' WHERE fingerprint = '%s'", steamidString, steamid, fingerprint);
                 db.Query(AppendFingerprintSteamIDOrIPCallback, query);             
         }
         if(ip[0])
@@ -504,8 +624,7 @@ void UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(const char[] fingerprint, 
                 pack.ReadCell();
                 pack.ReadString(ipString, sizeof(ipString));
 
-                Format(query, sizeof(query), "UPDATE hwbans_fingerprints SET ip = '%s;%s' WHERE fingerprint = '%s'", ipString, ip, fingerprint);
-                PrintToServer(query);
+                Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET ip = '%s;%s' WHERE fingerprint = '%s'", ipString, ip, fingerprint);
                 db.Query(AppendFingerprintSteamIDOrIPCallback, query);             
         }
 
@@ -524,7 +643,9 @@ public void AppendFingerprintSteamIDOrIPCallback(Database dtb, DBResultSet resul
 void OnFingerprintSent(int client, const char[] file, bool success, DataPack pack)
 {
 
-        PrintToServer("Fingerprint of %N sent, Success is: %i", client, success); 
+        char logMessage[128];
+        Format(logMessage, sizeof(logMessage), "Successfully sent fingerprint file of client %N", client);
+        WriteLog(logMessage, LogLevel_Debug);
         DeleteFile(file);
         clientQueueState[client] = QueueState_Ignore;
         globalLocked = false;
@@ -549,8 +670,10 @@ void OnFingerprintSent(int client, const char[] file, bool success, DataPack pac
 void RebanClient(int client, const char[] fingerprint, const char[] reason = BAN_REASON)
 {
         char query[512];
-        PrintToServer("Processing client ban of %N, Fingerprint is %s", client, fingerprint);
-        Format(query, sizeof(query), "SELECT banned_duration, banned_timestamp FROM hwbans_fingerprints WHERE fingerprint = '%s'", fingerprint);
+        char logMessage[128];
+        Format(logMessage, sizeof(logMessage), "Processing ban event of client %N", client);
+        WriteLog(logMessage, LogLevel_Bans);
+        Format(query, sizeof(query), "SELECT banned_duration, banned_timestamp FROM rebanner_fingerprints WHERE fingerprint = '%s'", fingerprint);
         DataPack pack = new DataPack();
         pack.WriteCell(client);
         pack.WriteString(fingerprint);
@@ -579,7 +702,6 @@ public void RebanClientQueryResult(Database dtb, DBResultSet results, const char
                 int banned_timestamp = results.FetchInt(1);
                 if(rebanDuration.BoolValue)
                 {
-                        PrintToServer("Banning for %i minutes", duration);
                         BanClient(client, duration, BANFLAG_AUTO, reason, reason, "reban", client);
                 }
                 else
@@ -588,11 +710,9 @@ public void RebanClientQueryResult(Database dtb, DBResultSet results, const char
                         if(remainingDuration < 0)
                                 remainingDuration = 0;
 
-                        PrintToServer("Banning for %i minutes", remainingDuration);
                         BanClient(client, remainingDuration, BANFLAG_AUTO, reason, reason, "reban", client);
                 }
                 bannedFingerprints.SetString(fingerprint, "", false);
-                PrintToServer("Added fingerprint");
 
                 currentUserId = INVALID_USERID;
                 globalLocked = false;
@@ -616,29 +736,35 @@ void CreateOrResendClientFingerprint(int client)
                 steamIDToFingerprintTable.GetString(steamid2, fingerprint, sizeof(fingerprint));
                 if(!ipToFingerprintTable.ContainsKey(ip) && shouldCheckIP.BoolValue) //and if we haven't recorded this IP yet
                 {
-                        Format(query, sizeof(query), "INSERT INTO hwbans_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, fingerprint);
+                        Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
                         UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, "", ip);
                 } 
-                PrintToServer("Sending existing fingerprint via SteamID match");
+                char logMessage[128];
+                Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by SteamID match (%s)", fingerprint, steamid2);
+                WriteLog(logMessage, LogLevel_Associations);
+
                 GenerateLocalFingerprintAndSendToClient(client, fingerprint);
         }
         else
         {
-
                 if(ipToFingerprintTable.ContainsKey(ip) && shouldCheckIP.BoolValue) //if we match a steamID to an ip
                 {
                         char fingerprint[128];
                         ipToFingerprintTable.GetString(ip, fingerprint, sizeof(fingerprint));
-                        PrintToServer("Sending existing fingerprint via IP match");
+                        char logMessage[128];
+                        Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by IP match (%s)", fingerprint, ip);
+                        WriteLog(logMessage, LogLevel_Associations);
                         GenerateLocalFingerprintAndSendToClient(client, fingerprint);
-                        Format(query, sizeof(query), "INSERT INTO hwbans_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid2, fingerprint);
+                        Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid2, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
                         UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid2, "");        
                 }
                 else //if we're out of options and we don't recognize this client
                 {
-                        PrintToServer("Sending new fingerprint");
+                        char logMessage[128];
+                        Format(logMessage, sizeof(logMessage), "Generating new fingerprint for client %N", client);
+                        WriteLog(logMessage, LogLevel_Debug);
                         GenerateLocalFingerprintAndSendToClient(client);
                 }
 
@@ -676,7 +802,7 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
         {
                 GetClientAuthId(client, AuthId_Steam2, steamID2, sizeof(steamID2));
                 GetClientIP(client, ip, sizeof(ip));
-                Format(query, sizeof(query), "INSERT INTO hwbans_fingerprints (fingerprint, steamid2, is_banned, banned_duration, banned_timestamp, ip) VALUES ('%s', '%s', 0, 0, 0, '%s')", uniqueFingerprint, steamID2, ip);
+                Format(query, sizeof(query), "INSERT INTO rebanner_fingerprints (fingerprint, steamid2, is_banned, banned_duration, banned_timestamp, ip) VALUES ('%s', '%s', 0, 0, 0, '%s')", uniqueFingerprint, steamID2, ip);
                 db.Query(OnFingerprintRelationSaved, query); //save new fingerprint
                 DataPack fingerprintPack = new DataPack();
                 fingerprintPack.WriteString(steamID2);
@@ -687,12 +813,12 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
                 fingerprintTable.SetValue(uniqueFingerprint, fingerprintPack);
                 steamIDToFingerprintTable.SetString(steamID2, uniqueFingerprint);
                 ipToFingerprintTable.SetString(ip, uniqueFingerprint);
-                Format(query, sizeof(query), "INSERT INTO hwbans_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamID2, uniqueFingerprint);
+                Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamID2, uniqueFingerprint);
                 db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
 
                 if(shouldCheckIP.BoolValue)
                 {
-                        Format(query, sizeof(query), "INSERT INTO hwbans_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, uniqueFingerprint);
+                        Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, uniqueFingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
                 }
 
