@@ -469,6 +469,7 @@ bool IsFingerprintTamperedWith(const char[] fingerprint)
                         if(!fingerprintTable.ContainsKey(fingerprint)) //the fingerprint from the client is numeric only, but we don't recognize it = tampering.
                                 return true;
                 }
+                delete regex;
         }
 
         return false;
