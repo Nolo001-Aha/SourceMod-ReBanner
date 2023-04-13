@@ -1,41 +1,15 @@
 #include <sourcemod>
 #include <regex>
 #include <filenetwork>
-#include <sourcebanspp>
+#include <sdktools_stringtables>
+#undef REQUIRE_PLUGIN
+#tryinclude <sourcebanspp>
+#define REQUIRE_PLUGIN
 
-
-#define FINGERPRINT "materials/models/player/custom.vmt"
-#define FINGERPRINT_DOWNLOAD "download/materials/models/player/custom.vmt"
-#define BAN_REASON "[ReBanner] Alternative account detected"
-#define FINGERPRINT_FILEPATH_CONFIG "configs/rebanner/fingerprint_path.txt"
-#define ANTITAMPER_ACTION_REASON "File tampering detected! Please re-download server files"
+#define BAN_REASON "Alternative account detected, re-applying ban"
+#define ANTITAMPER_ACTION_REASON "File tampering detected! Please download server files from scratch"
 #define LOGFILE "logs/rebanner.log"
 #define INVALID_USERID -1
-
-Database db;
-
-StringMap bannedFingerprints; //contains all banned fingerprints
-StringMap steamIDToFingerprintTable; //StringMap representation of rebanner_steamids table
-StringMap ipToFingerprintTable;//StringMap representation of rebanner_ips table
-StringMap fingerprintTable;//StringMap representation of rebanner_fingerprints table
-StringMap loadedFingerprints; //used to keep track of all fingerprints so we can delete the datapacks that fingerprintTable contains at map end
-
-ConVar rebanDuration;
-ConVar antiTamperMode;
-ConVar antiTamperAction;
-ConVar shouldCheckIP;
-ConVar logLevel;
-
-File logFile;
-char logFilePath[PLATFORM_MAX_PATH];
-
-Handle globalQueueTimer;
-
-bool globalLocked = true;
-
-int currentUserId = INVALID_USERID;
-
-int fingerprintCounter = 0;
 
 enum QueueState
 {
@@ -58,19 +32,111 @@ enum LogLevel
         LogLevel_Debug
 }
 
+Database db;
+
+StringMap bannedFingerprints; //contains all banned fingerprints
+StringMap steamIDToFingerprintTable; //StringMap representation of rebanner_steamids table
+StringMap ipToFingerprintTable;//StringMap representation of rebanner_ips table
+StringMap fingerprintTable;//StringMap representation of rebanner_fingerprints table
+StringMap loadedFingerprints; //used to keep track of all fingerprints so we can delete the datapacks that fingerprintTable contains at map end
+
+ConVar rebanDuration;
+ConVar antiTamperMode;
+ConVar antiTamperAction;
+ConVar shouldCheckIP;
+ConVar logLevel;
+
+bool canMarkForScan[MAXPLAYERS + 1];
+
+char logFilePath[PLATFORM_MAX_PATH];
+char fingerprintPath[PLATFORM_MAX_PATH];
+char fingerprintDownloadPath[PLATFORM_MAX_PATH];
 static char logLevelDefinitions[4][32] = {"[NONE]", "[BAN EVENT]", "[ASSOCIATION]", "[DEBUG]"};
+
+Handle globalQueueTimer;
+
+bool globalLocked = true;
+
+int currentUserId = INVALID_USERID;
+int fingerprintCounter = 0;
 
 QueueState clientQueueState[MAXPLAYERS+1];
 
-void WriteLog(const char[] message, LogLevel level)
+methodmap DataFragments
 {
-        LogLevel currentLogLevel = view_as<LogLevel>(logLevel.IntValue);
-        if(currentLogLevel >= level)
-        {
-                logFile.WriteLine("%s %s", logLevelDefinitions[level], message);
-                logFile.Flush();
-        }
+	public DataFragments(Address addr)
+	{
+		return view_as<DataFragments>(addr);
+	}
+	
+	public void filename(char[] buffer, int length)
+	{
+		int offset = 0x4;
+		for(int i = 0; i < length; i++)
+		{
+			buffer[i] = LoadFromAddress(view_as<Address>(view_as<int>(this) + offset + i), NumberType_Int8);
+			if(buffer[i] == '\0') break;
+		}
+	}
+}
 
+methodmap CUtlVector
+{
+	public CUtlVector(Address addr)
+	{
+		return view_as<CUtlVector>(addr);
+	}
+	
+	//Part of CUtlMemory
+	public Address m_pMemory()
+	{
+		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x0), NumberType_Int32);
+	}
+	
+	public int m_nAllocationCount()
+	{
+		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x4), NumberType_Int32);
+	}
+	
+	public int m_nGrowSize()
+	{
+		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x8), NumberType_Int32);
+	}
+	
+	//Part of CUtlVector
+	public int m_Size()
+	{
+		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0xC), NumberType_Int32);
+	}
+	
+	public Address m_pElements()
+	{
+		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x10), NumberType_Int32);
+	}
+	
+	public DataFragments GetAt(int i)
+	{
+		return view_as<DataFragments>(LoadFromAddress(view_as<Address>(view_as<int>(this.m_pElements()) + 0x4 * i), NumberType_Int32));
+	}
+	
+	public void SetAt(int i, DataFragments data)
+	{
+		StoreToAddress(view_as<Address>(view_as<int>(this.m_pElements()) + 0x4 * i), data, NumberType_Int32);
+	}
+	
+}
+
+methodmap CNetChan
+{
+	public CNetChan(Address addr)
+	{
+		return view_as<CNetChan>(addr);
+	}
+	
+	public CUtlVector m_WaitingList(int idx = 0)
+	{
+		return view_as<CUtlVector>(view_as<int>(this) + 0x100 + 0x14 * idx);
+	}
 }
 
 public Plugin myinfo =
@@ -78,7 +144,7 @@ public Plugin myinfo =
         name = "SourceMod Re-Banner",
         author = "Nolo001",
         description = "Detects and re-bans alt accounts of banned players through fingerprinting",
-        version = "0.9.2 Dev"
+        version = "0.9.6 Dev"
 };
 
 public void OnPluginStart()
@@ -101,8 +167,88 @@ public void OnPluginStart()
         antiTamperAction = CreateConVar("rb_antitamper_action", "1", "Action taken when fingerprint tampering is detected. 0 - do nothing, 1 - kick");
         antiTamperMode = CreateConVar("rb_antitamper_mode", "1", "Anti-tamper mode. 0 - disable (DANGEROUS), 1 - check fingerprints for tampering, 2 - Also check if client fingerprint is known by the server");
         rebanDuration = CreateConVar("rb_reban_type", "0", "How long should alts be re-banned for? 1 - same duration as original ban, 0 - remaining duration of the original ban");
-        BuildPath(Path_SM, logFilePath, PLATFORM_MAX_PATH, LOGFILE);
-        logFile = OpenFile(logFilePath, "a");
+}
+
+void ParseConfigFile()
+{
+        char config[PLATFORM_MAX_PATH];
+        BuildPath(Path_SM, config, sizeof(config), "configs/rebanner.cfg");
+        if(!FileExists(config))
+                GenerateConfigFile(config);
+
+        char fingerprint[PLATFORM_MAX_PATH];
+        KeyValues kv = new KeyValues("Settings");
+        kv.ImportFromFile(config);
+        kv.Rewind();
+        kv.GetString("fingerprint path", fingerprint, sizeof(fingerprint));
+        strcopy(fingerprintPath, sizeof(fingerprintPath), fingerprint);
+        Format(fingerprint, sizeof(fingerprint), "download/%s", fingerprint);
+        strcopy(fingerprintDownloadPath, sizeof(fingerprintDownloadPath), fingerprint);
+}
+
+public void OnAllPluginsLoaded()
+{
+        ParseConfigFile();
+}
+
+void GenerateConfigFile(const char[] path)
+{
+        char randomDownloadPath[PLATFORM_MAX_PATH];
+        int downloadTable = FindStringTable("downloadables");
+        if(downloadTable == INVALID_STRING_TABLE)
+                SetFailState("Unable to find downloadables stringtable. What?");
+
+        int downloadTableSize = GetStringTableNumStrings(downloadTable);
+        ReadStringTable(downloadTable, GetRandomInt(3, downloadTableSize-1), randomDownloadPath, sizeof(randomDownloadPath));
+        char explodedString[4][256];
+        int explodeSize = ExplodeString(randomDownloadPath, ".", explodedString, 4, 256);
+        Format(explodedString[explodeSize-2], 256, "%s1", explodedString[explodeSize-2]);
+        char finalFingerprintPath[PLATFORM_MAX_PATH];
+        for(int i = 0; i< explodeSize-1; i++)
+                Format(finalFingerprintPath, sizeof(finalFingerprintPath), "%s%s", finalFingerprintPath, explodedString[i]);
+
+        Format(finalFingerprintPath, sizeof(finalFingerprintPath), "%s.%s", finalFingerprintPath, explodedString[explodeSize-1]);
+        PrintToConsoleAll(finalFingerprintPath);
+
+        KeyValues kv = new KeyValues("Settings");
+        kv.SetString("fingerprint path", finalFingerprintPath);
+        kv.Rewind();
+        kv.ExportToFile(path);
+        delete kv;
+}
+
+public void OnClientAuthorized(int client)
+{
+    if(!canMarkForScan[client])
+    {
+        canMarkForScan[client] = true;
+        return;
+    }
+    BeginScan(client);
+}
+
+public void OnClientPutInServer(int client)
+{
+    if(!canMarkForScan[client])
+    {
+        canMarkForScan[client] = true;
+        return;
+    }
+    BeginScan(client);
+}
+
+void BeginScan(int client)
+{
+        canMarkForScan[client] = false;
+        CreateTimer(3.0, Timer_AppendClientToQueue, client, TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_AppendClientToQueue(Handle tmr, int client)
+{
+        if(IsValidClient(client))
+                clientQueueState[client] = QueueState_Queued;
+
+        return Plugin_Continue;
 }
 
 public Action Command_UnbanBySteamID(int client, int args)
@@ -154,7 +300,7 @@ public void OnMapStart()
         globalLocked = true;
         currentUserId = INVALID_USERID;
         Database.Connect(OnDatabaseConnected, "rebanner", 0);
-        globalQueueTimer = CreateTimer(0.5, Timer_ProcessQueue, _, TIMER_FLAG_NO_MAPCHANGE | TIMER_REPEAT);
+        globalQueueTimer = CreateTimer(5.0, Timer_ProcessQueue, _, TIMER_FLAG_NO_MAPCHANGE | TIMER_REPEAT);
 }
 
 public void OnMapEnd()
@@ -230,10 +376,12 @@ bool TryUnbanBySteamIDOrIP(const char[] steamid="", const char[] ip="")
         return false;
 }
 
+#if defined _sourcebanspp_included
 public void SBPP_OnBanPlayer(int iAdmin, int iTarget, int iTime, const char[] sReason)
 {
-        processBanEvent(iTarget, iTime);
+      processBanEvent(iTarget, iTime);
 }
+#endif
 
 void processBanEvent(int client, int time)
 {
@@ -268,6 +416,7 @@ public void OnBanClient_Query_Finished(Database dtb, DBResultSet results, const 
 
 public Action Timer_ProcessQueue(Handle tmr, any data)
 {
+        PrintToConsoleAll("Fingerprinting queue lock state: %b. Client: %N", globalLocked, GetClientOfUserId(currentUserId));
         if(globalLocked)
                 return Plugin_Continue;
 
@@ -395,21 +544,33 @@ public void OnFingerprintMarkedAsBanned(Database dtb, DBResultSet results, const
 
 }
 
-public void OnClientPostAdminCheck(int client)
-{
-        clientQueueState[client] = QueueState_Queued;
-}
-
-public void OnClientDisconnect_Post(int client)
+public void OnClientDisconnect(int client)
 {
         clientQueueState[client] = QueueState_Ignore;
+        canMarkForScan[client] = false;
+        if(currentUserId == GetClientUserId(client))
+        {
+                currentUserId = INVALID_USERID;
+                globalLocked = false;
+        }
 }
 
 void CheckClientConVar(int client)
 {
+        if(!IsValidClient(client))
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
+                return;             
+        }
         if(currentUserId != GetClientUserId(client))
-                ThrowError("Client mismatch in CheckClientConVar. Did the client disconnect?");
-
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
+                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+        }
         RemoveBanRecordIfExists(client); //if client got to this point, means they're not banned and we can reset is_banned if it's set to 1
         QueryClientConVar(client, "cl_allowupload", OnClientConVarQueried);
 
@@ -418,7 +579,13 @@ void CheckClientConVar(int client)
 void RemoveBanRecordIfExists(int client)
 {
         if(currentUserId != GetClientUserId(client))
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
                 ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+        }
+        WriteLog("Analyzing ban relation network...", LogLevel_Debug);
 
         char steamid[64];
         GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid));
@@ -447,30 +614,63 @@ public void ClientBanRecordRemoved(Database dtb, DBResultSet results, const char
 
 public void OnClientConVarQueried(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue)
 {
-        if(currentUserId != GetClientUserId(client))
-                ThrowError("Client mismatch in OnClientConVarQueried. Did the client disconnect?");
-
+        WriteLog("Client ConVars dumped...", LogLevel_Debug);
         if(!IsValidClient(client))
+        {
+                clientQueueState[client] = QueueState_Ignore;
+                currentUserId = INVALID_USERID;
+                globalLocked = false;
                 return;
+        }
+        if(currentUserId != GetClientUserId(client))
+        {
+                clientQueueState[client] = QueueState_Ignore;
+                currentUserId = INVALID_USERID;
+                globalLocked = false;
+                return;
+        }       
+
+        if(result == ConVarQuery_Cancelled)
+        {
+                clientQueueState[client] = QueueState_Ignore;
+                currentUserId = INVALID_USERID;
+                globalLocked = false;
+                return;
+        }
 
         float value = StringToFloat(cvarValue);
         if(value == 1.0)
-                FileNet_RequestFile(client, FINGERPRINT, RequestClientFingerprint);
+        {
+                WriteLog("Processing dumped values...", LogLevel_Debug);
+                FileNet_RequestFile(client, fingerprintPath, RequestClientFingerprint);
+        }
+        else
+        {
+                clientQueueState[client] = QueueState_Ignore;
+                currentUserId = INVALID_USERID;
+                globalLocked = false;
+                return;              
+        }
+        
 
 }
 
 void RequestClientFingerprint(int client, const char[] file, int id, bool success)
 {
         if(currentUserId != GetClientUserId(client))
-                ThrowError("Client mismatch in RequestClientFingerprint. Did the client disconnect?");
-
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
+                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+        }
         if(!success)
         {
                 CreateOrResendClientFingerprint(client);
                 return;
         }
 
-        File fingerprintFile = OpenFile(FINGERPRINT_DOWNLOAD, "r");
+        File fingerprintFile = OpenFile(fingerprintDownloadPath, "r");
         if(fingerprintFile == null)
                 SetFailState("Could not find fingerprint file on disk!");
 
@@ -480,7 +680,13 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
         char logMessage[128];
         Format(logMessage, sizeof(logMessage), "Processing existing fingerprint %s of client %N", clientFingerprint, client);
         WriteLog(logMessage, LogLevel_Debug);
-        DeleteFile(FINGERPRINT_DOWNLOAD);
+        while(FileExists(fingerprintDownloadPath))
+        {
+                WriteLog("Attempting to delete DOWNLOAD file...", LogLevel_Debug);
+                DeleteFile(fingerprintDownloadPath);
+        }
+
+
         clientQueueState[client] = QueueState_Ignore;
         globalLocked = false;
         
@@ -492,8 +698,12 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
 void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
 {
         if(currentUserId != GetClientUserId(client))
-                ThrowError("Client mismatch in ProcessReceivedClientFingerprint. Did the client disconnect?");
-
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
+                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+        }
         char ip[64], steamid[64], query[512];
         GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid));
         GetClientIP(client, ip, sizeof(ip));
@@ -518,6 +728,9 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         if(bannedFingerprints.ContainsKey(knownFingerprint)) //if this known fingerprint is banned, execute em
                                 RebanClient(client, knownFingerprint);
 
+                        currentUserId = INVALID_USERID;
+                        clientQueueState[client] = QueueState_Ignore;
+                        globalLocked = false;
                         return;
                 }
 
@@ -537,7 +750,9 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         }
                         if(bannedFingerprints.ContainsKey(knownFingerprint)) //if this known fingerprint is banned, execute em
                                 RebanClient(client, knownFingerprint);
-
+                        currentUserId = INVALID_USERID;
+                        clientQueueState[client] = QueueState_Ignore;
+                        globalLocked = false;
                         return;
                 }
                                 
@@ -572,7 +787,11 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                 }
                         
                 if(bannedFingerprints.ContainsKey(fingerprint)) //if this fingerprint is banned, execute em
-                        RebanClient(client, fingerprint);      
+                        RebanClient(client, fingerprint);
+
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;     
         }
 
 
@@ -580,6 +799,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
 
 bool IsFingerprintTamperedWith(const char[] fingerprint)
 {
+        PrintToChatAll("!!!fingerprintPath TAMPERING DETECTED!!!");
         if(antiTamperMode.IntValue)
         {
                 Regex regex = new Regex("^[0-9]+$");
@@ -639,14 +859,120 @@ public void AppendFingerprintSteamIDOrIPCallback(Database dtb, DBResultSet resul
 
 }
 
-
-void OnFingerprintSent(int client, const char[] file, bool success, DataPack pack)
+bool ForceShiftFingerprintQueuePosition(int client)
 {
+        Address netChanAddress = FileNet_GetNetChanPtr(client);
+        if(netChanAddress == Address_Null)
+                return false;
 
+        CNetChan netchan = CNetChan(netChanAddress);
+	CUtlVector waitingList = netchan.m_WaitingList(1);
+        if(waitingList.m_Size() <= 3)
+                return false;
+
+
+        DataFragments swapWith = waitingList.GetAt(waitingList.m_Size() - 1);
+        char filename[PLATFORM_MAX_PATH];
+        swapWith.filename(filename, sizeof(filename));
+
+        DataFragments toSwap = waitingList.GetAt(1);
+        waitingList.SetAt(1, swapWith);
+	waitingList.SetAt(waitingList.m_Size() - 1, toSwap);
+        return true;
+}
+
+void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFingerprint = "")
+{
+        if(currentUserId != GetClientUserId(client))
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
+                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+        }
+        char uniqueFingerprint[512], steamID2[128], ip[256], query[1024];
+
+        if(!existingFingerprint[0]) //if existingFingerprint is empty (i.e. generate new fingerprint )
+        {
+                for(int i=1; i<=5; i++)
+                        Format(uniqueFingerprint, sizeof(uniqueFingerprint), "%s%i", uniqueFingerprint, GetRandomInt(10000000, 999999999));
+        }
+        else //otherwise we're sending an existng fingerprint, so dont create a new one
+        {
+                strcopy(uniqueFingerprint, sizeof(uniqueFingerprint), existingFingerprint);
+        }
+
+        
+        File file;
+        file = OpenFile(fingerprintPath, "w");
+        file.WriteString(uniqueFingerprint, false);
+        file.Flush();
+        file.Close();
+        DataPack pack = new DataPack();
+        pack.WriteString(uniqueFingerprint);
+        pack.WriteCell(client);
+
+        WriteLog("Calling SendFile...", LogLevel_Debug);
+        if(!FileNet_SendFile(client, fingerprintPath, OnFingerprintFirstSent, pack, true))
+        { //we failed to queue the fingerprint for some reason, wtf?
+                clientQueueState[client] = QueueState_Ignore;
+                currentUserId = INVALID_USERID;
+                globalLocked = false;
+                return;       
+        }
+        ForceShiftFingerprintQueuePosition(client);
+        if(!existingFingerprint[0])
+        {
+                GetClientAuthId(client, AuthId_Steam2, steamID2, sizeof(steamID2));
+                GetClientIP(client, ip, sizeof(ip));
+                Format(query, sizeof(query), "INSERT INTO rebanner_fingerprints (fingerprint, steamid2, is_banned, banned_duration, banned_timestamp, ip) VALUES ('%s', '%s', 0, 0, 0, '%s')", uniqueFingerprint, steamID2, ip);
+                db.Query(OnFingerprintRelationSaved, query); //save new fingerprint
+                DataPack fingerprintPack = new DataPack();
+                fingerprintPack.WriteString(steamID2);
+                fingerprintPack.WriteCell(0);
+                fingerprintPack.WriteCell(0);
+                fingerprintPack.WriteCell(0);
+                fingerprintPack.WriteString(ip);
+                fingerprintTable.SetValue(uniqueFingerprint, fingerprintPack);
+                steamIDToFingerprintTable.SetString(steamID2, uniqueFingerprint);
+                ipToFingerprintTable.SetString(ip, uniqueFingerprint);
+                Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamID2, uniqueFingerprint);
+                db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
+
+                if(shouldCheckIP.BoolValue)
+                {
+                        Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, uniqueFingerprint);
+                        db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
+                }
+
+        }
+        WriteLog("Generate and send end.", LogLevel_Debug);
+}                      
+
+void OnFingerprintFirstSent(int client, const char[] file, bool success, DataPack pack)
+{
+        if(!success)
+        {
+                WriteLog("OnFingerprintFirstSent failure!", LogLevel_Debug);
+                return;
+        }
         char logMessage[128];
-        Format(logMessage, sizeof(logMessage), "Successfully sent fingerprint file of client %N", client);
+        Format(logMessage, sizeof(logMessage), "Successfully sent fingerprint file of client %N. Success: %b", client, success);
         WriteLog(logMessage, LogLevel_Debug);
-        DeleteFile(file);
+        //KillTimer(currentCheckFileTimer); //stop the timer, since we received success e.g. client returned the file that we sent them (i.e. they already have it client side)
+
+        while(FileExists(fingerprintDownloadPath))
+        {
+                WriteLog("Attempting to delete fingerprintDownloadPath file...", LogLevel_Debug);
+                DeleteFile(fingerprintDownloadPath);
+        }
+        while(FileExists(fingerprintPath))
+        {
+                WriteLog("Attempting to delete fingerprintPath file...", LogLevel_Debug);
+                DeleteFile(fingerprintPath);
+        }        
+        WriteLog("BOTH GONE.", LogLevel_Debug);
+        currentUserId = INVALID_USERID;
         clientQueueState[client] = QueueState_Ignore;
         globalLocked = false;
 
@@ -663,10 +989,9 @@ void OnFingerprintSent(int client, const char[] file, bool success, DataPack pac
                 currentUserId=INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-        }
-
-
+        }        
 }
+
 void RebanClient(int client, const char[] fingerprint, const char[] reason = BAN_REASON)
 {
         char query[512];
@@ -692,8 +1017,12 @@ public void RebanClientQueryResult(Database dtb, DBResultSet results, const char
                 pack.Reset();
                 int client = pack.ReadCell();
                 if(currentUserId != GetClientUserId(client))
-                        ThrowError("Client mismatch in RebanClientQueryResult. Did the client disconnect?");
-
+                {
+                        currentUserId = INVALID_USERID;
+                        clientQueueState[client] = QueueState_Ignore;
+                        globalLocked = false;
+                        ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                }
                 char fingerprint[128], reason[256];
                 pack.ReadString(fingerprint, sizeof(fingerprint));
                 pack.ReadString(reason, sizeof(reason));
@@ -724,8 +1053,12 @@ public void RebanClientQueryResult(Database dtb, DBResultSet results, const char
 void CreateOrResendClientFingerprint(int client)
 {
         if(currentUserId != GetClientUserId(client))
-                ThrowError("Client mismatch in CreateOrResendClientFingerprint. Did the client disconnect?");
-
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
+                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+        }
         char steamid2[64], query[512];
         GetClientAuthId(client, AuthId_Steam2, steamid2, sizeof(steamid2));
         char ip[64];
@@ -771,59 +1104,22 @@ void CreateOrResendClientFingerprint(int client)
         }
 }
 
-
-void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFingerprint = "")
+void WriteLog(const char[] message, LogLevel level)
 {
-        if(currentUserId != GetClientUserId(client))
-                ThrowError("Client mismatch in ProcessReceivedClientFingerprint. Did the client disconnect?");
-
-        char uniqueFingerprint[512], steamID2[128], ip[256], query[1024];
-
-        if(!existingFingerprint[0]) //if existingFingerprint is empty (i.e. generate new fingerprint )
+        LogLevel currentLogLevel = view_as<LogLevel>(logLevel.IntValue);
+        if(currentLogLevel >= level)
         {
-                for(int i=1; i<=5; i++)
-                        Format(uniqueFingerprint, sizeof(uniqueFingerprint), "%s%i", uniqueFingerprint, GetRandomInt(10000000, 999999999));
-        }
-        else //otherwise we're sending an existng fingerprint, so dont create a new one
-        {
-                strcopy(uniqueFingerprint, sizeof(uniqueFingerprint), existingFingerprint);
+                File logFile;
+                BuildPath(Path_SM, logFilePath, PLATFORM_MAX_PATH, LOGFILE);
+                logFile = OpenFile(logFilePath, "a");
+                logFile.WriteLine("%s %s", logLevelDefinitions[level], message);
+                PrintToConsoleAll("%s %s", logLevelDefinitions[level], message);
+                PrintToServer("%s %s", logLevelDefinitions[level], message);
+                logFile.Close();
         }
 
-        
-        File file;
-        file = OpenFile(FINGERPRINT, "w");
-        file.WriteString(uniqueFingerprint, false);
-        file.Flush();
-        file.Close();
-        DataPack pack = new DataPack();
-        pack.WriteString(uniqueFingerprint);
-        FileNet_SendFile(client, FINGERPRINT, OnFingerprintSent, pack);
-        if(!existingFingerprint[0])
-        {
-                GetClientAuthId(client, AuthId_Steam2, steamID2, sizeof(steamID2));
-                GetClientIP(client, ip, sizeof(ip));
-                Format(query, sizeof(query), "INSERT INTO rebanner_fingerprints (fingerprint, steamid2, is_banned, banned_duration, banned_timestamp, ip) VALUES ('%s', '%s', 0, 0, 0, '%s')", uniqueFingerprint, steamID2, ip);
-                db.Query(OnFingerprintRelationSaved, query); //save new fingerprint
-                DataPack fingerprintPack = new DataPack();
-                fingerprintPack.WriteString(steamID2);
-                fingerprintPack.WriteCell(0);
-                fingerprintPack.WriteCell(0);
-                fingerprintPack.WriteCell(0);
-                fingerprintPack.WriteString(ip);
-                fingerprintTable.SetValue(uniqueFingerprint, fingerprintPack);
-                steamIDToFingerprintTable.SetString(steamID2, uniqueFingerprint);
-                ipToFingerprintTable.SetString(ip, uniqueFingerprint);
-                Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamID2, uniqueFingerprint);
-                db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
+}
 
-                if(shouldCheckIP.BoolValue)
-                {
-                        Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, uniqueFingerprint);
-                        db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
-                }
-
-        }
-}                      
 
 void OnFingerprintRelationSaved(Database dtb, DBResultSet results, const char[] error, any data)
 {
