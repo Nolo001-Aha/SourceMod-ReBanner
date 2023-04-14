@@ -208,7 +208,6 @@ void GenerateConfigFile(const char[] path)
                 Format(finalFingerprintPath, sizeof(finalFingerprintPath), "%s%s", finalFingerprintPath, explodedString[i]);
 
         Format(finalFingerprintPath, sizeof(finalFingerprintPath), "%s.%s", finalFingerprintPath, explodedString[explodeSize-1]);
-        PrintToConsoleAll(finalFingerprintPath);
 
         KeyValues kv = new KeyValues("Settings");
         kv.SetString("fingerprint path", finalFingerprintPath);
@@ -416,7 +415,6 @@ public void OnBanClient_Query_Finished(Database dtb, DBResultSet results, const 
 
 public Action Timer_ProcessQueue(Handle tmr, any data)
 {
-        PrintToConsoleAll("Fingerprinting queue lock state: %b. Client: %N", globalLocked, GetClientOfUserId(currentUserId));
         if(globalLocked)
                 return Plugin_Continue;
 
@@ -824,10 +822,10 @@ void UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(const char[] fingerprint, 
         {
                 steamIDToFingerprintTable.SetString(steamid, fingerprint);  
                 char steamidString[256];
-                DataPack pack = new DataPack();
+                DataPack pack;
+                fingerprintTable.GetValue(fingerprint, pack);
                 pack.Reset();
                 pack.ReadString(steamidString, sizeof(steamidString));
-
                 Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET steamid2 = '%s;%s' WHERE fingerprint = '%s'", steamidString, steamid, fingerprint);
                 db.Query(AppendFingerprintSteamIDOrIPCallback, query);             
         }
