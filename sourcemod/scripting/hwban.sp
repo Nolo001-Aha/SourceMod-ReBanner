@@ -47,6 +47,7 @@ ConVar shouldCheckIP;
 ConVar logLevel;
 
 bool canMarkForScan[MAXPLAYERS + 1];
+bool conVarQuerySuccessful = false;
 
 char logFilePath[PLATFORM_MAX_PATH];
 char fingerprintPath[PLATFORM_MAX_PATH];
@@ -550,6 +551,7 @@ public void OnClientDisconnect(int client)
         {
                 currentUserId = INVALID_USERID;
                 globalLocked = false;
+                conVarQuerySuccessful = false;
         }
 }
 
@@ -567,11 +569,32 @@ void CheckClientConVar(int client)
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                return;
         }
         RemoveBanRecordIfExists(client); //if client got to this point, means they're not banned and we can reset is_banned if it's set to 1
+        conVarQuerySuccessful = false;
         QueryClientConVar(client, "cl_allowupload", OnClientConVarQueried);
+        CreateTimer(6.0, Timer_CheckForSuccessfulConVarQuery, client, TIMER_FLAG_NO_MAPCHANGE);
 
+}
+
+
+public Action Timer_CheckForSuccessfulConVarQuery(Handle tmr, int client)
+{
+        if(!IsValidClient(client))
+                return Plugin_Continue;
+
+        if(currentUserId != GetClientUserId(client))
+                return Plugin_Continue;
+
+        if(!conVarQuerySuccessful)
+        {
+                currentUserId = INVALID_USERID;
+                clientQueueState[client] = QueueState_Ignore;
+                globalLocked = false;
+                return Plugin_Continue;             
+        }
+        return Plugin_Continue;
 }
 
 void RemoveBanRecordIfExists(int client)
@@ -581,10 +604,8 @@ void RemoveBanRecordIfExists(int client)
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                return;
         }
-        WriteLog("Analyzing ban relation network...", LogLevel_Debug);
-
         char steamid[64];
         GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid));
         if(!steamIDToFingerprintTable.ContainsKey(steamid))
@@ -612,6 +633,7 @@ public void ClientBanRecordRemoved(Database dtb, DBResultSet results, const char
 
 public void OnClientConVarQueried(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue)
 {
+        conVarQuerySuccessful = true;
         WriteLog("Client ConVars dumped...", LogLevel_Debug);
         if(!IsValidClient(client))
         {
@@ -660,7 +682,7 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                return;
         }
         if(!success)
         {
@@ -700,7 +722,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                return;
         }
         char ip[64], steamid[64], query[512];
         GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid));
@@ -886,7 +908,7 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                return;
         }
         char uniqueFingerprint[512], steamID2[128], ip[256], query[1024];
 
@@ -1019,7 +1041,7 @@ public void RebanClientQueryResult(Database dtb, DBResultSet results, const char
                         currentUserId = INVALID_USERID;
                         clientQueueState[client] = QueueState_Ignore;
                         globalLocked = false;
-                        ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                        return;
                 }
                 char fingerprint[128], reason[256];
                 pack.ReadString(fingerprint, sizeof(fingerprint));
@@ -1055,7 +1077,7 @@ void CreateOrResendClientFingerprint(int client)
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                ThrowError("Client mismatch in RemoveBanRecordIfExists. Did the client disconnect?");
+                return;
         }
         char steamid2[64], query[512];
         GetClientAuthId(client, AuthId_Steam2, steamid2, sizeof(steamid2));
