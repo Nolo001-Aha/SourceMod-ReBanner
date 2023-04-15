@@ -545,8 +545,8 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                                 currentUserId = INVALID_USERID;
                                 KickClient(client, ANTITAMPER_ACTION_REASON);
                                 globalLocked = false;
-                                return;
                         }
+                        return;
                 }
                 Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid, fingerprint);
                 db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
