@@ -6,6 +6,7 @@
 #tryinclude <sourcebanspp>
 #define REQUIRE_PLUGIN
 
+#define DEFAULT_FINGERPRINT "materials/models/texture.vmt"
 #define BAN_REASON "Alternative account detected, re-applying ban"
 #define ANTITAMPER_ACTION_REASON "File tampering detected! Please download server files from scratch"
 #define LOGFILE "logs/rebanner.log"
@@ -145,7 +146,7 @@ public Plugin myinfo =
         name = "SourceMod Re-Banner",
         author = "Nolo001",
         description = "Detects and re-bans alt accounts of banned players through fingerprinting",
-        version = "0.9.6 Dev"
+        version = "0.9.7 Dev"
 };
 
 public void OnPluginStart()
@@ -184,7 +185,8 @@ void ParseConfigFile()
         kv.GetString("fingerprint path", fingerprint, sizeof(fingerprint));
         strcopy(fingerprintPath, sizeof(fingerprintPath), fingerprint);
         Format(fingerprint, sizeof(fingerprint), "download/%s", fingerprint);
-        strcopy(fingerprintDownloadPath, sizeof(fingerprintDownloadPath), fingerprint);
+        strcopy(fingerprintDownloadPath, sizeof(fingerprintDownloadPath), fingerprint);   
+        delete kv;
 }
 
 public void OnAllPluginsLoaded()
@@ -199,19 +201,25 @@ void GenerateConfigFile(const char[] path)
         if(downloadTable == INVALID_STRING_TABLE)
                 SetFailState("Unable to find downloadables stringtable. What?");
 
+        KeyValues kv = new KeyValues("Settings");
         int downloadTableSize = GetStringTableNumStrings(downloadTable);
-        ReadStringTable(downloadTable, GetRandomInt(3, downloadTableSize-1), randomDownloadPath, sizeof(randomDownloadPath));
-        char explodedString[4][256];
-        int explodeSize = ExplodeString(randomDownloadPath, ".", explodedString, 4, 256);
-        Format(explodedString[explodeSize-2], 256, "%s1", explodedString[explodeSize-2]);
-        char finalFingerprintPath[PLATFORM_MAX_PATH];
-        for(int i = 0; i< explodeSize-1; i++)
+        if(downloadTableSize > 3)
+        {
+                ReadStringTable(downloadTable, GetRandomInt(3, downloadTableSize-1), randomDownloadPath, sizeof(randomDownloadPath));
+                char explodedString[4][256];
+                int explodeSize = ExplodeString(randomDownloadPath, ".", explodedString, 4, 256);
+                Format(explodedString[explodeSize-2], 256, "%s1", explodedString[explodeSize-2]);
+                char finalFingerprintPath[PLATFORM_MAX_PATH];
+                for(int i = 0; i< explodeSize-1; i++)
                 Format(finalFingerprintPath, sizeof(finalFingerprintPath), "%s%s", finalFingerprintPath, explodedString[i]);
 
-        Format(finalFingerprintPath, sizeof(finalFingerprintPath), "%s.%s", finalFingerprintPath, explodedString[explodeSize-1]);
-
-        KeyValues kv = new KeyValues("Settings");
-        kv.SetString("fingerprint path", finalFingerprintPath);
+                Format(finalFingerprintPath, sizeof(finalFingerprintPath), "%s.%s", finalFingerprintPath, explodedString[explodeSize-1]);
+                kv.SetString("fingerprint path", finalFingerprintPath);
+        }
+        else
+        {
+                kv.SetString("fingerprint path", DEFAULT_FINGERPRINT);
+        }
         kv.Rewind();
         kv.ExportToFile(path);
         delete kv;
@@ -819,7 +827,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
 
 bool IsFingerprintTamperedWith(const char[] fingerprint)
 {
-        PrintToChatAll("!!!fingerprintPath TAMPERING DETECTED!!!");
+        WriteLog("!!!fingerprintPath TAMPERING DETECTED!!!", LogLevel_Associations);
         if(antiTamperMode.IntValue)
         {
                 Regex regex = new Regex("^[0-9]+$");
@@ -915,7 +923,7 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
         if(!existingFingerprint[0]) //if existingFingerprint is empty (i.e. generate new fingerprint )
         {
                 for(int i=1; i<=5; i++)
-                        Format(uniqueFingerprint, sizeof(uniqueFingerprint), "%s%i", uniqueFingerprint, GetRandomInt(10000000, 999999999));
+                        Format(uniqueFingerprint, sizeof(uniqueFingerprint), "%s%i", uniqueFingerprint, (GetURandomInt() % 988888889) + 11111111);
         }
         else //otherwise we're sending an existng fingerprint, so dont create a new one
         {
@@ -924,7 +932,7 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
 
         
         File file;
-        file = OpenFile(fingerprintPath, "w");
+        file = OpenFile(fingerprintPath, "w+");
         file.WriteString(uniqueFingerprint, false);
         file.Flush();
         file.Close();
@@ -1133,8 +1141,6 @@ void WriteLog(const char[] message, LogLevel level)
                 BuildPath(Path_SM, logFilePath, PLATFORM_MAX_PATH, LOGFILE);
                 logFile = OpenFile(logFilePath, "a");
                 logFile.WriteLine("%s %s", logLevelDefinitions[level], message);
-                PrintToConsoleAll("%s %s", logLevelDefinitions[level], message);
-                PrintToServer("%s %s", logLevelDefinitions[level], message);
                 logFile.Close();
         }
 
