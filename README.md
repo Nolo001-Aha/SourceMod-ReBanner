@@ -13,7 +13,7 @@ Still, Re-Banner should be capable of combatting most ban evasion attempts.
 -------------
 
 **Dependecies:**
-- File Network by Batfoxkid
+- [File Network](https://github.com/Batfoxkid/File-Network) by Batfoxkid
 - SourceBans (if you want to listen to SourceBans ban events, optional)
 
 **How it works:**
