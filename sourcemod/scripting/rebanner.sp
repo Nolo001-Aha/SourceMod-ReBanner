@@ -47,6 +47,8 @@ ConVar antiTamperAction;
 ConVar shouldCheckIP;
 ConVar logLevel;
 
+Regex regex;
+
 bool canMarkForScan[MAXPLAYERS + 1];
 bool conVarQuerySuccessful = false;
 
@@ -181,7 +183,6 @@ public void OnAllPluginsLoaded()
 
 public void OnMapStart()
 {
-
         fingerprintCounter = 0;
         globalLocked = true;
         currentUserId = INVALID_USERID;
@@ -571,15 +572,13 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;     
         }
-
-
 }
 
 bool IsFingerprintTamperedWith(const char[] fingerprint)
 {
         if(antiTamperMode.IntValue)
         {
-                Regex regex = new Regex("^[0-9]+$");
+                regex = new Regex("^[0-9]+$");
                 if(regex.Match(fingerprint) == -1) //our regex detected tampering, the fingerprint string contains something other than numbers
                         return true;
 
@@ -588,9 +587,7 @@ bool IsFingerprintTamperedWith(const char[] fingerprint)
                         if(!fingerprintTable.ContainsKey(fingerprint)) //the fingerprint from the client is numeric only, but we don't recognize it = tampering.
                                 return true;
                 }
-                delete regex;
         }
-
         return false;
 }
 
