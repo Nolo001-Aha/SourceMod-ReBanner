@@ -12,10 +12,6 @@
 #define LOGFILE "logs/rebanner.log"
 #define INVALID_USERID -1
 
-
-//Comment out the following line in order to enable support for MySQL
-#define SQLITE
-
 enum QueueState
 {
         QueueState_Ignore = 0,
