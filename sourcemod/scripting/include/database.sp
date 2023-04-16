@@ -4,9 +4,22 @@ public void OnDatabaseConnected(Database database, const char[] error, any data)
                 SetFailState("Database failure: %s", error);
 
         db = database;
-        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_fingerprints' (fingerprint TEXT PRIMARY KEY, steamid2 TEXT, is_banned INTEGER, banned_duration INTEGER, banned_timestamp INTEGER, ip TEXT)", TableType_Fingerprints);
-        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_steamids' (steamid2 TEXT PRIMARY KEY, fingerprint TEXT)", TableType_SteamIDs);
-        SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_ips' (ip TEXT PRIMARY KEY, fingerprint TEXT)", TableType_IPs);
+
+        char databaseType[16];
+        db.Driver.GetIdentifier(databaseType, sizeof(databaseType));
+
+        if(StrEqual(databaseType, "sqlite", false))
+        {
+                SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_fingerprints' (fingerprint TEXT PRIMARY KEY, steamid2 TEXT, is_banned INTEGER, banned_duration INTEGER, banned_timestamp INTEGER, ip TEXT)", TableType_Fingerprints);
+                SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_steamids' (steamid2 TEXT PRIMARY KEY, fingerprint TEXT)", TableType_SteamIDs);
+                SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS 'rebanner_ips' (ip TEXT PRIMARY KEY, fingerprint TEXT)", TableType_IPs);
+        }
+        else
+        {
+                SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS `rebanner_fingerprints` (fingerprint VARCHAR(70), steamid2 VARCHAR(70), is_banned TINYINT(1), banned_duration INT, banned_timestamp INT, ip VARCHAR(70), PRIMARY KEY (fingerprint))", TableType_Fingerprints);
+                SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS `rebanner_steamids` (steamid2 VARCHAR(70), fingerprint VARCHAR(70), PRIMARY KEY (steamid2))", TableType_SteamIDs);
+                SQL_TQuery(db, OnDatabaseStructureCreated, "CREATE TABLE IF NOT EXISTS `rebanner_ips` (ip VARCHAR(70), fingerprint VARCHAR(70), PRIMARY KEY (ip))", TableType_IPs);                
+        }
 }
 
 public void OnDatabaseStructureCreated(Handle owner, Handle hndl, const char[] error, TableType initType)

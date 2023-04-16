@@ -162,7 +162,7 @@ public void OnPluginStart()
         ipToFingerprintTable = new StringMap();
         fingerprintTable = new StringMap();
         loadedFingerprints = new StringMap();
-
+        regex = new Regex("^[0-9]+$");
         for(int client = 1; client<=MaxClients; client++)
                 clientQueueState[client] = QueueState_Ignore;
 
@@ -183,6 +183,7 @@ public void OnAllPluginsLoaded()
 
 public void OnMapStart()
 {
+
         fingerprintCounter = 0;
         globalLocked = true;
         currentUserId = INVALID_USERID;
@@ -572,13 +573,14 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;     
         }
+
+
 }
 
 bool IsFingerprintTamperedWith(const char[] fingerprint)
 {
         if(antiTamperMode.IntValue)
         {
-                regex = new Regex("^[0-9]+$");
                 if(regex.Match(fingerprint) == -1) //our regex detected tampering, the fingerprint string contains something other than numbers
                         return true;
 
