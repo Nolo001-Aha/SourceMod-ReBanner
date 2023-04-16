@@ -55,6 +55,7 @@ If the file has anything else (say, SQL commands, etc), or it's not recognized b
        "pass"    ""
   }
 ````
+**MySQL and SQLite are supported**.
 - Load the plugin.
 - On first launch, the plugin will create it's database as well as a config file called rebanner.cfg under addons/sourcemod/configs:
 ````
