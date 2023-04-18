@@ -46,8 +46,12 @@ ConVar antiTamperMode;
 ConVar antiTamperAction;
 ConVar shouldCheckIP;
 ConVar logLevel;
+ConVar svAllowUpload;
+ConVar svAllowDownload;
 
 Regex regex;
+
+EngineVersion engineVersion;
 
 bool canMarkForScan[MAXPLAYERS + 1];
 bool conVarQuerySuccessful = false;
@@ -152,11 +156,12 @@ public Plugin myinfo =
         author = "Nolo001",
         description = "Detects and re-bans alt accounts of banned players through client-side fingerprinting",
         url = "https://github.com/Nolo001-Aha/SourceMod-ReBanner",
-        version = "1.0"
+        version = "1.2"
 };
 
 public void OnPluginStart()
-{     
+{
+        engineVersion = GetEngineVersion();
         bannedFingerprints = new StringMap();
         steamIDToFingerprintTable = new StringMap();
         ipToFingerprintTable = new StringMap();
@@ -179,6 +184,10 @@ public void OnPluginStart()
 public void OnAllPluginsLoaded()
 {
         ParseConfigFile();
+        svAllowUpload = FindConVar("sv_allowupload");
+        svAllowDownload = FindConVar("sv_allowdownload");
+        svAllowDownload.SetInt(1);
+        svAllowUpload.SetInt(1);
 }
 
 public void OnMapStart()
@@ -233,8 +242,11 @@ void ParseConfigFile()
         kv.GetString("ban reason", configRebanReason, sizeof(configRebanReason));
         kv.GetString("tampering kick reason", configKickReason, sizeof(configKickReason));
 
+
+
         strcopy(fingerprintPath, sizeof(fingerprintPath), configFingerprint);
-        Format(configFingerprint, sizeof(configFingerprint), "download/%s", configFingerprint);
+        if(engineVersion != Engine_CSGO) //apparently CSGO doesn't know what download folder is, lol
+                Format(configFingerprint, sizeof(configFingerprint), "download/%s", configFingerprint);
         strcopy(fingerprintDownloadPath, sizeof(fingerprintDownloadPath), configFingerprint);
 
         strcopy(rebanReason, sizeof(rebanReason), configRebanReason);
@@ -637,12 +649,15 @@ public void AppendFingerprintSteamIDOrIPCallback(Database dtb, DBResultSet resul
 
 bool ForceShiftFingerprintQueuePosition(int client)
 {
+        if(engineVersion == Engine_CSGO)
+                return false;
+
         Address netChanAddress = FileNet_GetNetChanPtr(client);
         if(netChanAddress == Address_Null)
                 return false;
 
         CNetChan netchan = CNetChan(netChanAddress);
-	CUtlVector waitingList = netchan.m_WaitingList(1);
+        CUtlVector waitingList = netchan.m_WaitingList(1);
         if(waitingList.m_Size() <= 3)
                 return false;
 
@@ -736,11 +751,11 @@ void OnFingerprintFirstSent(int client, const char[] file, bool success, DataPac
         WriteLog(logMessage, LogLevel_Debug);
         //KillTimer(currentCheckFileTimer); //stop the timer, since we received success e.g. client returned the file that we sent them (i.e. they already have it client side)
 
-        while(FileExists(fingerprintDownloadPath))
-                DeleteFile(fingerprintDownloadPath);
-
         while(FileExists(fingerprintPath))
                 DeleteFile(fingerprintPath);
+
+        while(FileExists(fingerprintDownloadPath))
+                DeleteFile(fingerprintDownloadPath);
     
         currentUserId = INVALID_USERID;
         clientQueueState[client] = QueueState_Ignore;
