@@ -4,7 +4,6 @@ public void OnDatabaseConnected(Database database, const char[] error, any data)
                 SetFailState("Database failure: %s", error);
 
         db = database;
-
         char databaseType[16];
         db.Driver.GetIdentifier(databaseType, sizeof(databaseType));
 
@@ -72,8 +71,6 @@ public void ParseDatabaseRecords(Database dtb, DBResultSet results, const char[]
                                 fingerprintTable.SetValue(fingerprint, pack);
                                 char key[16];
                                 IntToString(fingerprintCounter, key, sizeof(key));
-                                loadedFingerprints.SetString(key, fingerprint);
-                                fingerprintCounter++;
                                 if(isBanned)
                                         bannedFingerprints.SetString(fingerprint, "");                                                       
 
@@ -81,7 +78,6 @@ public void ParseDatabaseRecords(Database dtb, DBResultSet results, const char[]
                         case TableType_SteamIDs:
                         {
                                 char fingerprint[128], steamId[32];             
-
                                 results.FetchString(0, steamId, sizeof(steamId));  //steamID2
                                 results.FetchString(1, fingerprint, sizeof(fingerprint));  //fingerprint string
                                 steamIDToFingerprintTable.SetString(steamId, fingerprint);
