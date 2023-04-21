@@ -6,9 +6,9 @@ Rebans alt accounts of banned players through fingerprinting via SteamID, IP add
 
 Relies on security through obscurity, and this repo being public undermines it's effectiveness to some extent.
 
-People who REALLY want to avoid their ban and who know that this system exists will find the weak spots quite easily.
+People who want to avoid their ban and who know that this system exists will find the weak spots quite easily. Nothing is perfect, especially a server-side only solution.
 
-Still, Re-Banner should be capable of combatting most ban evasion attempts.
+Nevertheless, Re-Banner should be capable of combatting most ban evasion attempts and it is fully functional with default client ConVar values.
 
 -------------
 
