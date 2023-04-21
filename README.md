@@ -1,4 +1,4 @@
-# SourceMod-ReBanner
+# SourceMod Re-Banner
 
 Designed to work autonomously.
 
