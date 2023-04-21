@@ -2,7 +2,7 @@
 
 Designed to work autonomously.
 
-Rebans alt accounts of banned players through fingerprinting via SteamID, IP addresses and clientside "cookies".
+Keeps track of and bans alt accounts of players through fingerprinting via SteamID, IP addresses and clientside "cookies".
 
 Relies on security through obscurity, and this repo being public undermines it's effectiveness to some extent.
 
