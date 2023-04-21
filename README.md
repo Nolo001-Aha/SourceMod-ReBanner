@@ -19,7 +19,7 @@ Still, Re-Banner should be capable of combatting most ban evasion attempts.
 - [Logic explanation](https://github.com/Nolo001-Aha/SourceMod-ReBanner/wiki/Plugin-operation-logic)
 - [FastDownloads logic](https://github.com/Nolo001-Aha/SourceMod-ReBanner/wiki/FastDownloads-server-logic)
 - [ConVars](https://github.com/Nolo001-Aha/SourceMod-ReBanner/wiki/ConVars)
-
+- [Commands](https://github.com/Nolo001-Aha/SourceMod-ReBanner/wiki/Commands)
 
 
 
