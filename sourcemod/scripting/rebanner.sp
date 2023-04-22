@@ -253,7 +253,7 @@ public MRESReturn sendServerInfoDetCallback_Pre(Address pointer, Handle hReturn,
 	}
 	else
 	{
-		client = view_as<int>(SDKCall(hPlayerSlot, pointer)) + 1;
+		client = view_as<int>(SDKCall(hPlayerSlot, pointer2)) + 1;
 	}
         modifyConVarCurrentClient = client;
 	return MRES_Ignored;
