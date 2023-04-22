@@ -347,9 +347,21 @@ public MRESReturn buildConVarMessageDetCallback_Post(Handle hParams) //Reverts t
 
 public void OnAllPluginsLoaded()
 {
-        FindConVar("sv_allowdownload").SetInt(1);
-        FindConVar("sv_allowupload").SetInt(1);
-        FindConVar("cl_allowdownload").SetInt(1);
+        ConVar svAllowDownload = FindConVar("sv_allowdownload");
+        if(svAllowDownload)
+                svAllowDownload.SetInt(1);
+
+        ConVar svAllowUpload = FindConVar("sv_allowupload");
+        if(svAllowUpload)
+                svAllowUpload.SetInt(1);
+
+        ConVar clAllowUpload = FindConVar("cl_allowupload");
+        if(clAllowUpload)
+                clAllowUpload.SetInt(1);
+
+        ConVar clAllowDownload = FindConVar("cl_allowdownload");
+        if(clAllowDownload)
+                clAllowDownload.SetInt(1);
 }
 
 public void OnPluginEnd()
