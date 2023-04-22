@@ -62,6 +62,7 @@
     header('Cache-Control: must-revalidate');
     header('Pragma: public');
     header('Content-Disposition: attachment; filename="'.basename($requestedFile).'"');
+    header('Content-Length: ' . filesize(getcwd()."/".$requestedFile));
     readfile(getcwd()."/".$requestedFile);
     die();
     function isPathMalicious($filePath) : bool
@@ -96,6 +97,7 @@
         header('Cache-Control: must-revalidate');
         header('Pragma: public');
         header('Content-Disposition: attachment; filename="'.basename($finalFile).'"');
+        header('Content-Length: ' . filesize($finalFile));
         readfile($finalFile);
             
         die();
