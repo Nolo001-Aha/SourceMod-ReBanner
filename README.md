@@ -35,7 +35,7 @@ Nevertheless, Re-Banner should be capable of combatting most ban evasion attempt
 
 **Credits:**
 
+- Naydef for QA, IP address check suggestion, de-bugging Source file queues, his massive work on finding most signatures and teaching me how to find offsets. Honestly, I'd kneel before him.
 - Batfoxkid, Artvin and the Zombie Riot team for help with File Network
 - Samm-Cheese for being my test subject and providing fresh ideas
-- Naydef for QA, IP address check suggestion, de-bugging Source file queues and generally being a legend
 - The AlliedMods Discord members for help with various code-related questions
