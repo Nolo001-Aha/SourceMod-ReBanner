@@ -750,7 +750,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         WriteLog(log, LogLevel_Associations);
                         if(antiTamperAction.BoolValue) //kick client
                         {
-                                KickClient(client, ANTITAMPER_ACTION_REASON);
+                                KickClient(client, antitamperKickReason);
                         }
                         clientQueueState[client] = QueueState_Ignore;
                         currentUserId = INVALID_USERID;
