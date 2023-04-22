@@ -231,7 +231,7 @@ public void OnPluginStart()
         Database.Connect(OnDatabaseConnected, "rebanner", 0);
 
         checkOS();
-
+        ParseConfigFile();
         RegAdminCmd("rb_unbansteam", Command_UnbanBySteamID, ADMFLAG_UNBAN, "Remove the ban flag on a fingerprint via a SteamID");
         RegAdminCmd("rb_unbanip", Command_UnbanByIP, ADMFLAG_UNBAN, "Remove the ban flag on a fingerprint via an IP address");
 
@@ -256,12 +256,19 @@ public MRESReturn sendServerInfoDetCallback_Pre(Address pointer, Handle hReturn,
 		client = view_as<int>(SDKCall(hPlayerSlot, pointer2)) + 1;
 	}
         modifyConVarCurrentClient = client;
+        //PrintToServer("sendServerInfoDetCallback_Pre for client %N, %i", modifyConVarCurrentClient, modifyConVarCurrentClient);
 	return MRES_Ignored;
 }
 
 public MRESReturn buildConVarMessageDetCallback_Pre(Handle hParams) //Second callback in chain, call our main function and get a node link in response
 {
+        if(modifyConVarCurrentClient == -1)
+                return MRES_Ignored;
+
+        //PrintToServer("buildConVarMessageDetCallback_Pre for client %N, %i", modifyConVarCurrentClient, modifyConVarCurrentClient);
         int client = modifyConVarCurrentClient;
+        modifyConVarCurrentClient = -1;
+
         char steamid2[64], query[512];
         GetClientAuthId(client, AuthId_Steam2, steamid2, sizeof(steamid2), false);
         char ip[64];
@@ -371,7 +378,6 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
-        ParseConfigFile();
         svDownloadUrl = FindConVar("sv_downloadurl");
         GetConVarString(svDownloadUrl, defaultDownloadUrlConvar, sizeof(defaultDownloadUrlConvar));
         AddFileToDownloadsTable(fingerprintPath);
@@ -489,6 +495,8 @@ public void OnClientDisconnect(int client)
                 globalLocked = false;
                 conVarQuerySuccessful = false;
         }
+        if(modifyConVarCurrentClient == client)
+                modifyConVarCurrentClient = -1;
 }
 
 void BeginScan(int client)
@@ -519,7 +527,7 @@ public Action Timer_ProcessQueue(Handle tmr, any data)
                         globalLocked = true;
                         currentUserId = GetClientUserId(client);
                         char logMessage[128];
-                        Format(logMessage, sizeof(logMessage), "Processing queued client %N", client);
+                        Format(logMessage, sizeof(logMessage), "Processing queued client %N, %i", client, client);
                         WriteLog(logMessage, LogLevel_Debug);
                         StartProcessingClient(client);
                         return Plugin_Continue;
@@ -1115,6 +1123,7 @@ void WriteLog(const char[] message, LogLevel level)
                 logFile = OpenFile(logFilePath, "a");
                 logFile.WriteLine("%s %s", logLevelDefinitions[level], message);
                 logFile.Close();
+                //PrintToServer(message);
         }
 
 }
