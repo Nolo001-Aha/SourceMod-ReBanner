@@ -349,7 +349,6 @@ public void OnAllPluginsLoaded()
 {
         FindConVar("sv_allowdownload").SetInt(1);
         FindConVar("sv_allowupload").SetInt(1);
-        FindConVar("cl_allowupload").SetInt(1);
         FindConVar("cl_allowdownload").SetInt(1);
 }
 
