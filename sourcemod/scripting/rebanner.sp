@@ -87,8 +87,8 @@ int modifyConVarCurrentClient = 0;
 
 QueueState clientQueueState[MAXPLAYERS+1];
 
-#include <include/bans.sp> //Everything related to ban forwards
-#include <include/database.sp> //database creation and parsing
+#include "include/bans.sp" //Everything related to ban forwards
+#include "include/database.sp" //database creation and parsing
 
 methodmap DataFragments
 {
