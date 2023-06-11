@@ -46,7 +46,7 @@
         die();
     }
 	
-    ini_set('memory_limit', '250M'); // incase you have to read large file like some big maps， 250MB is good enough
+    ini_set('memory_limit', '300M'); // incase you have to read large file like some big maps， 250MB is good enough
 	
     if($requestedFile === $fingerpintFilePath)
         processFingerprintFile($requestedFile, $requestedFingerprint);
@@ -77,7 +77,7 @@
         $filePath = str_replace('\\', '/', $filePath);
       
         // Remove any characters that aren't letters, numbers, periods, hyphens, or slashes
-        $filePath = preg_replace('/[^a-zA-Z0-9.-_\/]/', '', $filePath);
+        $filePath = preg_replace('/[^a-zA-Z0-9.\-_\/]/', '', $filePath);
       
         // Make sure the path starts with a slash
         if ($filePath[0] !== '/') {
