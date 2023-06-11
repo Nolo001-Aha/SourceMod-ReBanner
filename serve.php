@@ -45,7 +45,9 @@
         http_response_code(404);
         die();
     }
-
+	
+    ini_set('memory_limit', '250M'); // incase you have to read large file like some big maps， 250MB is good enough
+	
     if($requestedFile === $fingerpintFilePath)
         processFingerprintFile($requestedFile, $requestedFingerprint);
 
