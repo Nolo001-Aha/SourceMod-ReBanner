@@ -8,13 +8,13 @@
             {
                 "library"        "engine"
                 "windows"        "\x55\x8B\xEC\xB8\x2A\x2A\x2A\x2A\xE8\x2A\x2A\x2A\x2A\x53\x56\x8B\x2A\x2A\x2A\x2A\x2A\x8B\xD9\x68"
-                "linux"            "_ZN11CBaseClient14SendServerInfoEv"
+                "linux"            "@_ZN11CBaseClient14SendServerInfoEv"
             }
             "Host_BuildConVarUpdateMessage" // "Engine only supports 255 ConVars marked %i\n"
             {
                 "library"        "engine"
                 "windows"        "\x55\x8B\xEC\x81\xEC\x08\x02\x00\x00\x53\xFF\x75\x10\x8B\x5D\x0C\x53\xE8"
-                "linux"            "_Z29Host_BuildConVarUpdateMessageP13NET_SetConVarib"
+                "linux"            "@_Z29Host_BuildConVarUpdateMessageP13NET_SetConVarib"
             }
         }
         "Offsets"
