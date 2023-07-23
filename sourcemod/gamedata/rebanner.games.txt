@@ -21,7 +21,7 @@
         {
             "CBaseClient::GetPlayerSlot"
             {
-                "linux"     "3"
+                "linux"     "15"
                 "windows"   "14"
             }
         }
