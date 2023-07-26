@@ -376,7 +376,7 @@ public void OnPluginEnd()
         SetConVarString(svDownloadUrl, defaultDownloadUrlConvar);        
 }
 
-public void OnMapStart()
+public void OnConfigsExecuted()
 {
         svDownloadUrl = FindConVar("sv_downloadurl");
         GetConVarString(svDownloadUrl, defaultDownloadUrlConvar, sizeof(defaultDownloadUrlConvar));
