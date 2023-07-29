@@ -38,9 +38,9 @@ enum LogLevel
 
 enum OSType
 {
-	OS_Linux = 0,
-	OS_Windows,
-	OS_Unknown
+        OS_Linux = 0,
+        OS_Windows,
+        OS_Unknown
 }
 
 OSType os;
@@ -92,79 +92,79 @@ QueueState clientQueueState[MAXPLAYERS+1];
 
 methodmap DataFragments
 {
-	public DataFragments(Address addr)
-	{
-		return view_as<DataFragments>(addr);
-	}
-	
-	public void filename(char[] buffer, int length)
-	{
-		int offset = 0x4;
-		for(int i = 0; i < length; i++)
-		{
-			buffer[i] = LoadFromAddress(view_as<Address>(view_as<int>(this) + offset + i), NumberType_Int8);
-			if(buffer[i] == '\0') break;
-		}
-	}
+        public DataFragments(Address addr)
+        {
+                return view_as<DataFragments>(addr);
+        }
+
+        public void filename(char[] buffer, int length)
+        {
+                int offset = 0x4;
+                for(int i = 0; i < length; i++)
+                {
+                        buffer[i] = LoadFromAddress(view_as<Address>(view_as<int>(this) + offset + i), NumberType_Int8);
+                        if(buffer[i] == '\0') break;
+                }
+        }
 }
 
 methodmap CUtlVector //Borrowed from File Network by Batfoxkid
 {
-	public CUtlVector(Address addr)
-	{
-		return view_as<CUtlVector>(addr);
-	}
-	
-	//Part of CUtlMemory
-	public Address m_pMemory()
-	{
-		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x0), NumberType_Int32);
-	}
-	
-	public int m_nAllocationCount()
-	{
-		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x4), NumberType_Int32);
-	}
-	
-	public int m_nGrowSize()
-	{
-		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x8), NumberType_Int32);
-	}
-	
-	//Part of CUtlVector
-	public int m_Size()
-	{
-		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0xC), NumberType_Int32);
-	}
-	
-	public Address m_pElements()
-	{
-		return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x10), NumberType_Int32);
-	}
-	
-	public DataFragments GetAt(int i)
-	{
-		return view_as<DataFragments>(LoadFromAddress(view_as<Address>(view_as<int>(this.m_pElements()) + 0x4 * i), NumberType_Int32));
-	}
-	
-	public void SetAt(int i, DataFragments data)
-	{
-		StoreToAddress(view_as<Address>(view_as<int>(this.m_pElements()) + 0x4 * i), data, NumberType_Int32);
-	}
-	
+        public CUtlVector(Address addr)
+        {
+                return view_as<CUtlVector>(addr);
+        }
+
+        //Part of CUtlMemory
+        public Address m_pMemory()
+        {
+                return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x0), NumberType_Int32);
+        }
+
+        public int m_nAllocationCount()
+        {
+                return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x4), NumberType_Int32);
+        }
+
+        public int m_nGrowSize()
+        {
+                return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x8), NumberType_Int32);
+        }
+
+        //Part of CUtlVector
+        public int m_Size()
+        {
+                return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0xC), NumberType_Int32);
+        }
+
+        public Address m_pElements()
+        {
+                return LoadFromAddress(view_as<Address>(view_as<int>(this) + 0x10), NumberType_Int32);
+        }
+
+        public DataFragments GetAt(int i)
+        {
+                return view_as<DataFragments>(LoadFromAddress(view_as<Address>(view_as<int>(this.m_pElements()) + 0x4 * i), NumberType_Int32));
+        }
+
+        public void SetAt(int i, DataFragments data)
+        {
+                StoreToAddress(view_as<Address>(view_as<int>(this.m_pElements()) + 0x4 * i), data, NumberType_Int32);
+        }
+
 }
 
 methodmap CNetChan
 {
-	public CNetChan(Address addr)
-	{
-		return view_as<CNetChan>(addr);
-	}
-	
-	public CUtlVector m_WaitingList(int idx = 0)
-	{
-		return view_as<CUtlVector>(view_as<int>(this) + 0x100 + 0x14 * idx);
-	}
+        public CNetChan(Address addr)
+        {
+                return view_as<CNetChan>(addr);
+        }
+
+        public CUtlVector m_WaitingList(int idx = 0)
+        {
+                return view_as<CUtlVector>(view_as<int>(this) + 0x100 + 0x14 * idx);
+        }
 }
 
 public Plugin myinfo =
@@ -191,42 +191,42 @@ public void OnPluginStart()
                 clientQueueState[client] = QueueState_Ignore;
 
 
-	gamedatafile = LoadGameConfigFile("rebanner.games");
-	
-	if(gamedatafile == null)
-		SetFailState("Cannot load rebanner.games.txt! Make sure you have it installed!");
+        gamedatafile = LoadGameConfigFile("rebanner.games");
 
-	Handle detourSendServerInfo = DHookCreateDetour(Address_Null, CallConv_THISCALL, ReturnType_Bool, ThisPointer_Address);
-	if(detourSendServerInfo == null)
-		SetFailState("Failed to create detour for CBaseClient::SendServerInfo!");
-		
-	if(!DHookSetFromConf(detourSendServerInfo, gamedatafile, SDKConf_Signature, "CBaseClient::SendServerInfo"))
-		SetFailState("Failed to load CBaseClient::SendServerInfo signature from gamedata!");
-   
-	if(!DHookEnableDetour(detourSendServerInfo, false, sendServerInfoDetCallback_Pre))
-		SetFailState("Failed to detour CBaseClient::SendServerInfo PreHook!");
+        if(gamedatafile == null)
+                SetFailState("Cannot load rebanner.games.txt! Make sure you have it installed!");
 
-	Handle detourBuildConVarMessage = DHookCreateDetour(Address_Null, CallConv_CDECL, ReturnType_Void, ThisPointer_Ignore);
-	if(detourBuildConVarMessage == null)
-		SetFailState("Failed to create detour for Host_BuildConVarUpdateMessage!");
-	
-	if(!DHookSetFromConf(detourBuildConVarMessage, gamedatafile, SDKConf_Signature, "CBaseClient::SendServerInfo"))
-		SetFailState("Failed to load Host_BuildConVarUpdateMessage signature from gamedata!");
+        Handle detourSendServerInfo = DHookCreateDetour(Address_Null, CallConv_THISCALL, ReturnType_Bool, ThisPointer_Address);
+        if(detourSendServerInfo == null)
+                SetFailState("Failed to create detour for CBaseClient::SendServerInfo!");
 
-	DHookAddParam(detourBuildConVarMessage, HookParamType_Unknown);
-	DHookAddParam(detourBuildConVarMessage, HookParamType_Int);
-	DHookAddParam(detourBuildConVarMessage, HookParamType_Bool);    
-	
-	if(!DHookEnableDetour(detourBuildConVarMessage, false, buildConVarMessageDetCallback_Pre))
-		SetFailState("Failed to detour Host_BuildConVarUpdateMessage PreHook!");
-  
-	if(!DHookEnableDetour(detourBuildConVarMessage, true, buildConVarMessageDetCallback_Post))
-		SetFailState("Failed to detour Host_BuildConVarUpdateMessage PostHook!");
-		
-	StartPrepSDKCall(SDKCall_Raw);
-	PrepSDKCall_SetFromConf(gamedatafile, SDKConf_Virtual, "CBaseClient::GetPlayerSlot");
-	PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
-	hPlayerSlot = EndPrepSDKCall();
+        if(!DHookSetFromConf(detourSendServerInfo, gamedatafile, SDKConf_Signature, "CBaseClient::SendServerInfo"))
+                SetFailState("Failed to load CBaseClient::SendServerInfo signature from gamedata!");
+
+        if(!DHookEnableDetour(detourSendServerInfo, false, sendServerInfoDetCallback_Pre))
+                SetFailState("Failed to detour CBaseClient::SendServerInfo PreHook!");
+
+        Handle detourBuildConVarMessage = DHookCreateDetour(Address_Null, CallConv_CDECL, ReturnType_Void, ThisPointer_Ignore);
+        if(detourBuildConVarMessage == null)
+                SetFailState("Failed to create detour for Host_BuildConVarUpdateMessage!");
+
+        if(!DHookSetFromConf(detourBuildConVarMessage, gamedatafile, SDKConf_Signature, "CBaseClient::SendServerInfo"))
+                SetFailState("Failed to load Host_BuildConVarUpdateMessage signature from gamedata!");
+
+        DHookAddParam(detourBuildConVarMessage, HookParamType_Unknown);
+        DHookAddParam(detourBuildConVarMessage, HookParamType_Int);
+        DHookAddParam(detourBuildConVarMessage, HookParamType_Bool);
+
+        if(!DHookEnableDetour(detourBuildConVarMessage, false, buildConVarMessageDetCallback_Pre))
+                SetFailState("Failed to detour Host_BuildConVarUpdateMessage PreHook!");
+
+        if(!DHookEnableDetour(detourBuildConVarMessage, true, buildConVarMessageDetCallback_Post))
+                SetFailState("Failed to detour Host_BuildConVarUpdateMessage PostHook!");
+
+        StartPrepSDKCall(SDKCall_Raw);
+        PrepSDKCall_SetFromConf(gamedatafile, SDKConf_Virtual, "CBaseClient::GetPlayerSlot");
+        PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
+        hPlayerSlot = EndPrepSDKCall();
 
         Database.Connect(OnDatabaseConnected, "rebanner", 0);
 
@@ -245,19 +245,19 @@ public void OnPluginStart()
 public MRESReturn sendServerInfoDetCallback_Pre(Address pointer, Handle hReturn, Handle hParams) //First callback in chain, derive client and find their IP
 {
         int client;
-	Address pointer2 = pointer + view_as<Address>(0x4);
-	if(os == OS_Windows)
-	{
+        Address pointer2 = pointer + view_as<Address>(0x4);
+        if(os == OS_Windows)
+        {
 
-		client = view_as<int>(SDKCall(hPlayerSlot, pointer2)) + 1;
-	}
-	else
-	{
-		client = view_as<int>(SDKCall(hPlayerSlot, pointer2)) + 1;
-	}
+                client = view_as<int>(SDKCall(hPlayerSlot, pointer2)) + 1;
+        }
+        else
+        {
+                client = view_as<int>(SDKCall(hPlayerSlot, pointer2)) + 1;
+        }
         modifyConVarCurrentClient = client;
         //PrintToServer("sendServerInfoDetCallback_Pre for client %N, %i", modifyConVarCurrentClient, modifyConVarCurrentClient);
-	return MRES_Ignored;
+        return MRES_Ignored;
 }
 
 public MRESReturn buildConVarMessageDetCallback_Pre(Handle hParams) //Second callback in chain, call our main function and get a node link in response
@@ -282,7 +282,7 @@ public MRESReturn buildConVarMessageDetCallback_Pre(Handle hParams) //Second cal
                         Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
                         UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, "", ip);
-                } 
+                }
                 char logMessage[256];
                 Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by SteamID match (%s). Sending through FastDownloads.", fingerprint, steamid2);
                 WriteLog(logMessage, LogLevel_Associations);
@@ -300,14 +300,14 @@ public MRESReturn buildConVarMessageDetCallback_Pre(Handle hParams) //Second cal
                         updateDownloadUrlConVarWithUniqueFingerprint(fingerprint);
                         Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid2, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
-                        UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid2, "");        
+                        UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid2, "");
                 }
-                else //if we're out of options and we don't recognize this client 
+                else //if we're out of options and we don't recognize this client
                 {
-                        char logMessage[128];   
+                        char logMessage[128];
                         Format(logMessage, sizeof(logMessage), "Generating new fingerprint for client %N", client);
                         WriteLog(logMessage, LogLevel_Debug);
-                        GenerateNewFingerprintAndSetConVar(steamid2);  
+                        GenerateNewFingerprintAndSetConVar(steamid2);
                 }
 
         }
@@ -329,7 +329,7 @@ void GenerateNewFingerprintAndSetConVar(const char[] steamid)
 void updateDownloadUrlConVarWithUniqueFingerprint(const char[] fingerprint)
 {
         int oldflags = GetConVarFlags(svDownloadUrl);
-	SetConVarFlags(svDownloadUrl, oldflags &~ FCVAR_REPLICATED);
+        SetConVarFlags(svDownloadUrl, oldflags &~ FCVAR_REPLICATED);
         char newDownloadUrl[512];
         Format(newDownloadUrl, sizeof(newDownloadUrl), "%s/serve.php?id=%s&url=", defaultDownloadUrlConvar, fingerprint);
         SetConVarString(svDownloadUrl, newDownloadUrl);
@@ -342,10 +342,10 @@ void updateDownloadUrlConVarWithUniqueFingerprint(const char[] fingerprint)
 
 public MRESReturn buildConVarMessageDetCallback_Post(Handle hParams) //Reverts the ConVar to it's original value
 {
-	int oldflags = GetConVarFlags(svDownloadUrl);
-	SetConVarFlags(svDownloadUrl, oldflags &~ FCVAR_REPLICATED);
+        int oldflags = GetConVarFlags(svDownloadUrl);
+        SetConVarFlags(svDownloadUrl, oldflags &~ FCVAR_REPLICATED);
         SetConVarString(svDownloadUrl, defaultDownloadUrlConvar);
-	SetConVarFlags(svDownloadUrl, oldflags|FCVAR_REPLICATED);
+        SetConVarFlags(svDownloadUrl, oldflags|FCVAR_REPLICATED);
         char logMessage[128];
         Format(logMessage, sizeof(logMessage), "Resetting to default FastDownload address.");
         WriteLog(logMessage, LogLevel_Debug);
@@ -373,7 +373,7 @@ public void OnAllPluginsLoaded()
 
 public void OnPluginEnd()
 {
-        SetConVarString(svDownloadUrl, defaultDownloadUrlConvar);        
+        SetConVarString(svDownloadUrl, defaultDownloadUrlConvar);
 }
 
 public void OnConfigsExecuted()
@@ -521,7 +521,7 @@ public Action Timer_ProcessQueue(Handle tmr, any data)
         {
                 if(!IsValidClient(client))
                         continue;
-                
+
                 if(clientQueueState[client] == QueueState_Queued)
                 {
                         globalLocked = true;
@@ -543,7 +543,7 @@ void StartProcessingClient(int client)
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                return;             
+                return;
         }
         int oldflags = GetConVarFlags(svDownloadUrl);
         SetConVarFlags(svDownloadUrl, oldflags|FCVAR_REPLICATED);
@@ -568,7 +568,7 @@ public Action Timer_CheckForSuccessfulConVarQuery(Handle tmr, int client)
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                return Plugin_Continue;             
+                return Plugin_Continue;
         }
         return Plugin_Continue;
 }
@@ -589,7 +589,7 @@ public void OnClientConVarQueried(QueryCookie cookie, int client, ConVarQueryRes
                 currentUserId = INVALID_USERID;
                 globalLocked = false;
                 return;
-        }       
+        }
 
         if(result == ConVarQuery_Cancelled)
         {
@@ -611,9 +611,9 @@ public void OnClientConVarQueried(QueryCookie cookie, int client, ConVarQueryRes
                 clientQueueState[client] = QueueState_Ignore;
                 currentUserId = INVALID_USERID;
                 globalLocked = false;
-                return;              
+                return;
         }
-        
+
 
 }
 
@@ -624,7 +624,7 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
                 currentUserId = INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-                return;               
+                return;
         }
         if(currentUserId != GetClientUserId(client))
         {
@@ -669,7 +669,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
         GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid));
         GetClientIP(client, ip, sizeof(ip));
 
-        if(steamIDToFingerprintTable.ContainsKey(steamid) || ipToFingerprintTable.ContainsKey(ip)) // we recognize this client by IP or SteamID, we know their fingerprint. 
+        if(steamIDToFingerprintTable.ContainsKey(steamid) || ipToFingerprintTable.ContainsKey(ip)) // we recognize this client by IP or SteamID, we know their fingerprint.
         {                                                                                               //Make sure to store their IP/SteamID if we don't have such a match
                 if(steamIDToFingerprintTable.ContainsKey(steamid)) //if we matched by steamid
                 {
@@ -725,7 +725,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         }
                         return;
                 }
-                                
+
         }
         else //we do not recognize their IP and SteamID and can't find their fingerprint, but they have a fingerprint clientside. Grab their clientside fingerprint and match it with their steamid and ip
         {
@@ -736,7 +736,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         temporaryFingerprints.Remove(fingerprint);
                         char log[256];
                         Format(log, sizeof(log), "Client %N not recognized and did not have a fingerprint client-side before joining the server. Generating new fingerprint record.", client);
-                        WriteLog(log, LogLevel_Associations);                        
+                        WriteLog(log, LogLevel_Associations);
 
 
                         Format(query, sizeof(query), "INSERT INTO rebanner_fingerprints (fingerprint, steamid2, is_banned, banned_duration, banned_timestamp, ip) VALUES ('%s', '%s', 0, 0, 0, '%s')", fingerprint, steamid, ip);
@@ -789,9 +789,9 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                 }
                 else
                 {
-                        UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid);                        
+                        UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid);
                 }
-                        
+
                 if(bannedFingerprints.ContainsKey(fingerprint))
                 {
                         RebanClient(client, fingerprint);
@@ -801,7 +801,7 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         currentUserId = INVALID_USERID;
                         clientQueueState[client] = QueueState_Ignore;
                         globalLocked = false;
-                        return;                         
+                        return;
                 }
         }
 }
@@ -827,14 +827,14 @@ void UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(const char[] fingerprint, 
         char query[512];
         if(steamid[0])
         {
-                steamIDToFingerprintTable.SetString(steamid, fingerprint);  
+                steamIDToFingerprintTable.SetString(steamid, fingerprint);
                 char steamidString[256];
                 DataPack pack;
                 fingerprintTable.GetValue(fingerprint, pack);
                 pack.Reset();
                 pack.ReadString(steamidString, sizeof(steamidString));
                 Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET steamid2 = '%s;%s' WHERE fingerprint = '%s'", steamidString, steamid, fingerprint);
-                db.Query(AppendFingerprintSteamIDOrIPCallback, query);             
+                db.Query(AppendFingerprintSteamIDOrIPCallback, query);
         }
         if(ip[0])
         {
@@ -850,7 +850,7 @@ void UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(const char[] fingerprint, 
                 pack.ReadString(ipString, sizeof(ipString));
 
                 Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET ip = '%s;%s' WHERE fingerprint = '%s'", ipString, ip, fingerprint);
-                db.Query(AppendFingerprintSteamIDOrIPCallback, query);             
+                db.Query(AppendFingerprintSteamIDOrIPCallback, query);
         }
 }
 
@@ -883,7 +883,7 @@ bool ForceShiftFingerprintQueuePosition(int client)
 
         DataFragments toSwap = waitingList.GetAt(1);
         waitingList.SetAt(1, swapWith);
-	waitingList.SetAt(waitingList.m_Size() - 1, toSwap);
+        waitingList.SetAt(waitingList.m_Size() - 1, toSwap);
         return true;
 }
 
@@ -907,7 +907,7 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
                         currentUserId = INVALID_USERID;
                         clientQueueState[client] = QueueState_Ignore;
                         globalLocked = false;
-                        return;                       
+                        return;
                 }
                 steamIDToTemporaryFingerrpints.GetString(steamid, uniqueFingerprint, sizeof(uniqueFingerprint));
                 steamIDToTemporaryFingerrpints.Remove(steamid);
@@ -917,7 +917,7 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
                 strcopy(uniqueFingerprint, sizeof(uniqueFingerprint), existingFingerprint);
         }
 
-        
+
         File file;
         file = OpenFile(fingerprintPath, "w+");
         file.WriteString(uniqueFingerprint, false);
@@ -933,7 +933,7 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
                 clientQueueState[client] = QueueState_Ignore;
                 currentUserId = INVALID_USERID;
                 globalLocked = false;
-                return;       
+                return;
         }
         ForceShiftFingerprintQueuePosition(client);
         if(!existingFingerprint[0])
@@ -982,7 +982,7 @@ void OnFingerprintFirstSent(int client, const char[] file, bool success, DataPac
                         DeleteFile(fingerprintPath);
 
                 while(FileExists(fingerprintDownloadPath))
-                        DeleteFile(fingerprintDownloadPath);               
+                        DeleteFile(fingerprintDownloadPath);
         }
         WriteLog("Processing client fingerprint. Checking for bans...", LogLevel_Debug);
 
@@ -999,7 +999,7 @@ void OnFingerprintFirstSent(int client, const char[] file, bool success, DataPac
                 currentUserId=INVALID_USERID;
                 clientQueueState[client] = QueueState_Ignore;
                 globalLocked = false;
-        }        
+        }
 }
 
 void RebanClient(int client, const char[] fingerprint, const char[] reason = BAN_REASON)
@@ -1079,7 +1079,7 @@ void CreateOrResendClientFingerprint(int client)
                         Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
                         UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, "", ip);
-                } 
+                }
                 char logMessage[128];
                 Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by SteamID match (%s). Sending via File Network.", fingerprint, steamid2);
                 WriteLog(logMessage, LogLevel_Associations);
@@ -1098,11 +1098,11 @@ void CreateOrResendClientFingerprint(int client)
                         GenerateLocalFingerprintAndSendToClient(client, fingerprint);
                         Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid2, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
-                        UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid2, "");        
+                        UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, steamid2, "");
                 }
                 else //if we're out of options and we don't recognize this client. Send the fingerprint that we generated during connection
                 {
-                        
+
                         char logMessage[128];
                         Format(logMessage, sizeof(logMessage), "Unable to recognize client by SteamID and IP, and unable to query local fingerprint. Sending fingerprint via File Network.", client);
                         WriteLog(logMessage, LogLevel_Debug);
@@ -1131,7 +1131,7 @@ void WriteLog(const char[] message, LogLevel level)
 void OnFingerprintRelationSaved(Database dtb, DBResultSet results, const char[] error, any data)
 {
         if(error[0])
-                SetFailState("Failed to parse database: %s", error);  
+                SetFailState("Failed to parse database: %s", error);
 
 }
 
@@ -1152,7 +1152,7 @@ public Action Command_UnbanBySteamID(int client, int args)
         else
         {
                 PrintToChat(client, "Failed to match %s to a known fingerprint or it's not banned. Aborting.", steamid);
-                return Plugin_Handled;                
+                return Plugin_Handled;
         }
 }
 
@@ -1173,7 +1173,7 @@ public Action Command_UnbanByIP(int client, int args)
         else
         {
                 PrintToChat(client, "Failed to match %s to a known fingerprint or it's not banned. Aborting.", ip);
-                return Plugin_Handled;                
+                return Plugin_Handled;
         }
 }
 
@@ -1215,55 +1215,55 @@ bool TryUnbanBySteamIDOrIP(const char[] steamid="", const char[] ip="")
                                 db.Query(ClientBanRecordRemoved, query);
                                 return true;
                         }
-                }          
+                }
         }
         return false;
 }
 
 void checkOS()
 {
-	char cmdline[256];
-	GetCommandLine(cmdline, sizeof(cmdline));
+        char cmdline[256];
+        GetCommandLine(cmdline, sizeof(cmdline));
 
-	if (StrContains(cmdline, "./srcds_linux ", false) != -1)
-	{
-		os = OS_Linux;
-	}
-	else if (StrContains(cmdline, ".exe", false) != -1)
-	{
-		os = OS_Windows;
-	}
-	else
-	{
-		os = OS_Unknown;
-	}
+        if (StrContains(cmdline, "./srcds_linux ", false) != -1)
+        {
+                os = OS_Linux;
+        }
+        else if (StrContains(cmdline, ".exe", false) != -1)
+        {
+                os = OS_Windows;
+        }
+        else
+        {
+                os = OS_Unknown;
+        }
 }
 
 stock bool IsValidClient(int client, bool replaycheck=false, bool onlyrealclients=true) //stock that checks if the client is valid(not bot, connected, in game, authorized etc)
 {
-	if(client<=0 || client>MaxClients)
-	{
-		return false;
-	}
+        if(client<=0 || client>MaxClients)
+        {
+                return false;
+        }
 
-	if(!IsClientInGame(client))
-	{
-		return false;
-	}
+        if(!IsClientInGame(client))
+        {
+                return false;
+        }
 
-	if(onlyrealclients)
-	{
-		if(IsFakeClient(client))
-			return false;
-	}
+        if(onlyrealclients)
+        {
+                if(IsFakeClient(client))
+                        return false;
+        }
 
-	if(replaycheck)
-	{
-		if(IsClientSourceTV(client) || IsClientReplay(client))
-		{
-			return false;
-		}
-	}
-	
-	return true;
-}	
+        if(replaycheck)
+        {
+                if(IsClientSourceTV(client) || IsClientReplay(client))
+                {
+                        return false;
+                }
+        }
+
+        return true;
+}
