@@ -384,6 +384,27 @@ public void OnConfigsExecuted()
         globalLocked = false;
         currentUserId = INVALID_USERID;
         CreateTimer(5.0, Timer_ProcessQueue, _, TIMER_FLAG_NO_MAPCHANGE | TIMER_REPEAT);
+
+        //Some checks are needed here for proper operation
+        File file = OpenFile(fingerprintPath, "w+");
+        if(file == null)
+        {
+                SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
+        }
+
+        //Refer to engine/net_chan.cpp#2136
+        char buf[PLATFORM_MAX_PATH];
+        Format(buf, sizeof(buf), "download/%s", fingerprintPath);
+        PrintToServer("File exists: %d", FileExists(buf));
+        if(FileExists(buf))
+        {
+            DeleteFile(buf);
+
+            char logMessage[128];
+            Format(logMessage, sizeof(logMessage), "File in 'download' folder deleted: %s", fingerprintPath);
+            WriteLog(logMessage, LogLevel_Debug);
+        }
+        delete file;
 }
 
 public void OnMapEnd()
@@ -639,6 +660,7 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
                 WriteLog("Unable to request client fingerprint or they didn't download it through FastDownloads. Checking if we can send through File Network...", LogLevel_Debug);
                 return;
         }
+
 
         File fingerprintFile = OpenFile(fingerprintDownloadPath, "r");
         if(fingerprintFile == null)
@@ -918,8 +940,11 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
         }
 
 
-        File file;
-        file = OpenFile(fingerprintPath, "w+");
+        File file = OpenFile(fingerprintPath, "w+");
+        if(file == null)
+        {
+                SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
+        }
         file.WriteString(uniqueFingerprint, false);
         file.Flush();
         file.Close();
