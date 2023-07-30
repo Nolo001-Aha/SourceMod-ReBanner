@@ -395,7 +395,6 @@ public void OnConfigsExecuted()
         //Refer to engine/net_chan.cpp#2136
         char buf[PLATFORM_MAX_PATH];
         Format(buf, sizeof(buf), "download/%s", fingerprintPath);
-        PrintToServer("File exists: %d", FileExists(buf));
         if(FileExists(buf))
         {
             DeleteFile(buf);
