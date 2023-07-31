@@ -73,7 +73,6 @@ bool conVarQuerySuccessful = false;
 
 char logFilePath[PLATFORM_MAX_PATH];
 char fingerprintPath[PLATFORM_MAX_PATH];
-char fingerprintDownloadPath[PLATFORM_MAX_PATH];
 char rebanReason[256];
 char antitamperKickReason[256];
 static char logLevelDefinitions[4][32] = {"[NONE]", "[BAN EVENT]", "[ASSOCIATION]", "[DEBUG]"};
@@ -386,18 +385,19 @@ public void OnConfigsExecuted()
         CreateTimer(5.0, Timer_ProcessQueue, _, TIMER_FLAG_NO_MAPCHANGE | TIMER_REPEAT);
 
         //Some checks are needed here for proper operation
-        //File file = OpenFile(fingerprintPath, "w+", true, "download");
-        //if(file == null)
-        //{
-        //        SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
-        //}
-        //delete file;
+        File file = OpenFile(fingerprintPath, "w+", true, "download");
+        if(file == null)
+        {
+                SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
+        }
+        delete file;
 
         //Refer to engine/net_chan.cpp#2136
         if(FileExists(fingerprintPath, true, "download"))
         {
+            int status = DeleteFile(fingerprintPath, true, "download");
             char logMessage[128];
-            Format(logMessage, sizeof(logMessage), "File in 'download' folder deleted: %s | Status: %d", fingerprintPath, DeleteFile(fingerprintPath, true, "download"));
+            Format(logMessage, sizeof(logMessage), "File in 'download' folder deleted: %s | Status: %d", fingerprintPath, status);
             WriteLog(logMessage, LogLevel_Debug);
         }
 }
@@ -438,9 +438,6 @@ void ParseConfigFile()
 
 
         strcopy(fingerprintPath, sizeof(fingerprintPath), configFingerprint);
-        //if(engineVersion != Engine_CSGO) //apparently CSGO doesn't know what download folder is, lol
-        //        Format(configFingerprint, sizeof(configFingerprint), "download/%s", configFingerprint);
-        strcopy(fingerprintDownloadPath, sizeof(fingerprintDownloadPath), configFingerprint);
 
         strcopy(rebanReason, sizeof(rebanReason), configRebanReason);
         strcopy(antitamperKickReason, sizeof(antitamperKickReason), configKickReason);
@@ -568,12 +565,11 @@ void StartProcessingClient(int client)
         RemoveBanRecordIfExists(client); //if client got to this point, means they're not banned and we can reset is_banned if it's set to 1
         conVarQuerySuccessful = false;
         WriteLog("Requesting client fingerpint via File Network...", LogLevel_Debug);
-        //if(FileExists(fingerprintDownloadPath, true, "download"))
+        if(FileExists(fingerprintPath, true, "download"))
         {
-                PrintToServer("File exists: %d Old file deleted? %d", FileExists(fingerprintDownloadPath, true, "download"), DeleteFile(fingerprintDownloadPath, true, "download")); //@DELETE
+                DeleteFile(fingerprintPath, true, "download");
         }
         FileNet_RequestFile(client, fingerprintPath, RequestClientFingerprint);
-        PrintToServer("** File exists: %d Old file deleted? %d", FileExists(fingerprintDownloadPath, true, "download"), DeleteFile(fingerprintDownloadPath, true, "download")); //@DELETE
 }
 
 public Action Timer_CheckForSuccessfulConVarQuery(Handle tmr, int client)
@@ -662,7 +658,7 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
         }
 
 
-        File fingerprintFile = OpenFile(fingerprintDownloadPath, "r");
+        File fingerprintFile = OpenFile(fingerprintPath, "r");
         if(fingerprintFile == null)
                 SetFailState("Could not find fingerprint file on disk! Should never happen?");
 
@@ -672,8 +668,8 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
         char logMessage[128];
         Format(logMessage, sizeof(logMessage), "Received fingerprint %s of client %N. Processing...", clientFingerprint, client);
         WriteLog(logMessage, LogLevel_Debug);
-        if(FileExists(fingerprintDownloadPath, true, "download"))
-                DeleteFile(fingerprintDownloadPath, true, "download");
+        if(FileExists(fingerprintPath, true, "download"))
+                DeleteFile(fingerprintPath, true, "download");
 
         ProcessReceivedClientFingerprint(client, clientFingerprint);
 }
@@ -1003,11 +999,8 @@ void OnFingerprintFirstSent(int client, const char[] file, bool success, DataPac
                 Format(logMessage, sizeof(logMessage), "Sent fingerprint file of client %N via File Network.", client);
                 WriteLog(logMessage, LogLevel_Debug);
 
-                while(FileExists(fingerprintPath, true, "download"))
+                if(FileExists(fingerprintPath, true, "download"))
                         DeleteFile(fingerprintPath, true, "download");
-
-                while(FileExists(fingerprintDownloadPath, true, "download"))
-                        DeleteFile(fingerprintDownloadPath, true, "download");
         }
         WriteLog("Processing client fingerprint. Checking for bans...", LogLevel_Debug);
 
