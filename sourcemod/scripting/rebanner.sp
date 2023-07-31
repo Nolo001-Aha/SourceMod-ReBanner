@@ -386,7 +386,8 @@ public void OnConfigsExecuted()
 
         //Some checks are needed here for proper operation
         File file = OpenFile(fingerprintPath, "w+", true, "download");
-                SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
+        if(file == null)
+                SetFailState("Unable to create or open fingerprint file '%s'. Please build the path to this file!", fingerprintPath);
 
         delete file;
 
@@ -656,7 +657,7 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
         }
 
 
-        File fingerprintFile = OpenFile(fingerprintPath, "r");
+        File fingerprintFile = OpenFile(fingerprintPath, "r", true, "download");
         if(fingerprintFile == null)
                 SetFailState("Could not find fingerprint file on disk! Should never happen?");
 
@@ -934,10 +935,10 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
         }
 
 
-        File file = OpenFile(fingerprintPath, "w+");
+        File file = OpenFile(fingerprintPath, "w+", true, "download");
         if(file == null)
         {
-                SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
+                SetFailState("Unable to create or open fingerprint file '%s'. Please build the path to this file!", fingerprintPath);
         }
         file.WriteString(uniqueFingerprint, false);
         file.Flush();
