@@ -386,19 +386,17 @@ public void OnConfigsExecuted()
 
         //Some checks are needed here for proper operation
         File file = OpenFile(fingerprintPath, "w+", true, "download");
-        if(file == null)
-        {
                 SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
-        }
+
         delete file;
 
         //Refer to engine/net_chan.cpp#2136
         if(FileExists(fingerprintPath, true, "download"))
         {
-            int status = DeleteFile(fingerprintPath, true, "download");
-            char logMessage[128];
-            Format(logMessage, sizeof(logMessage), "File in 'download' folder deleted: %s | Status: %d", fingerprintPath, status);
-            WriteLog(logMessage, LogLevel_Debug);
+                int status = DeleteFile(fingerprintPath, true, "download");
+                char logMessage[128];
+                Format(logMessage, sizeof(logMessage), "File in 'download' folder deleted: %s | Status: %d", fingerprintPath, status);
+                WriteLog(logMessage, LogLevel_Debug);
         }
 }
 
