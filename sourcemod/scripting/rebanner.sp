@@ -73,11 +73,11 @@ bool conVarQuerySuccessful = false;
 
 char logFilePath[PLATFORM_MAX_PATH];
 char fingerprintPath[PLATFORM_MAX_PATH];
-char fingerprintDownloadPath[PLATFORM_MAX_PATH];
 char rebanReason[256];
 char antitamperKickReason[256];
 static char logLevelDefinitions[4][32] = {"[NONE]", "[BAN EVENT]", "[ASSOCIATION]", "[DEBUG]"};
 char defaultDownloadUrlConvar[512];
+char logMessageRB[256];
 
 bool globalLocked = true;
 
@@ -283,9 +283,8 @@ public MRESReturn buildConVarMessageDetCallback_Pre(Handle hParams) //Second cal
                         db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
                         UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, "", ip);
                 }
-                char logMessage[256];
-                Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by SteamID match (%s). Sending through FastDownloads.", fingerprint, steamid2);
-                WriteLog(logMessage, LogLevel_Associations);
+                Format(logMessageRB, sizeof(logMessageRB), "Found existing fingerprint record (%s) by SteamID match (%s). Sending through FastDownloads.", fingerprint, steamid2);
+                WriteLog(logMessageRB, LogLevel_Associations);
                 updateDownloadUrlConVarWithUniqueFingerprint(fingerprint);
         }
         else
@@ -294,9 +293,8 @@ public MRESReturn buildConVarMessageDetCallback_Pre(Handle hParams) //Second cal
                 {
                         char fingerprint[128];
                         ipToFingerprintTable.GetString(ip, fingerprint, sizeof(fingerprint));
-                        char logMessage[256];
-                        Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by IP match (%s). Sending through FastDownloads.", fingerprint, ip);
-                        WriteLog(logMessage, LogLevel_Associations);
+                        Format(logMessageRB, sizeof(logMessageRB), "Found existing fingerprint record (%s) by IP match (%s). Sending through FastDownloads.", fingerprint, ip);
+                        WriteLog(logMessageRB, LogLevel_Associations);
                         updateDownloadUrlConVarWithUniqueFingerprint(fingerprint);
                         Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid2, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
@@ -304,9 +302,8 @@ public MRESReturn buildConVarMessageDetCallback_Pre(Handle hParams) //Second cal
                 }
                 else //if we're out of options and we don't recognize this client
                 {
-                        char logMessage[128];
-                        Format(logMessage, sizeof(logMessage), "Generating new fingerprint for client %N", client);
-                        WriteLog(logMessage, LogLevel_Debug);
+                        Format(logMessageRB, sizeof(logMessageRB), "Generating new fingerprint for client %N", client);
+                        WriteLog(logMessageRB, LogLevel_Debug);
                         GenerateNewFingerprintAndSetConVar(steamid2);
                 }
 
@@ -334,9 +331,8 @@ void updateDownloadUrlConVarWithUniqueFingerprint(const char[] fingerprint)
         Format(newDownloadUrl, sizeof(newDownloadUrl), "%s/serve.php?id=%s&url=", defaultDownloadUrlConvar, fingerprint);
         SetConVarString(svDownloadUrl, newDownloadUrl);
         SetConVarFlags(svDownloadUrl, oldflags|FCVAR_REPLICATED);
-        char logMessage[128];
-        Format(logMessage, sizeof(logMessage), "Diverting to new FastDownload address: %s", newDownloadUrl);
-        WriteLog(logMessage, LogLevel_Debug);
+        Format(logMessageRB, sizeof(logMessageRB), "Diverting to new FastDownload address: %s", newDownloadUrl);
+        WriteLog(logMessageRB, LogLevel_Debug);
 }
 
 
@@ -346,9 +342,8 @@ public MRESReturn buildConVarMessageDetCallback_Post(Handle hParams) //Reverts t
         SetConVarFlags(svDownloadUrl, oldflags &~ FCVAR_REPLICATED);
         SetConVarString(svDownloadUrl, defaultDownloadUrlConvar);
         SetConVarFlags(svDownloadUrl, oldflags|FCVAR_REPLICATED);
-        char logMessage[128];
-        Format(logMessage, sizeof(logMessage), "Resetting to default FastDownload address.");
-        WriteLog(logMessage, LogLevel_Debug);
+        Format(logMessageRB, sizeof(logMessageRB), "Resetting to default FastDownload address.");
+        WriteLog(logMessageRB, LogLevel_Debug);
         return MRES_Ignored;
 }
 
@@ -386,24 +381,32 @@ public void OnConfigsExecuted()
         CreateTimer(5.0, Timer_ProcessQueue, _, TIMER_FLAG_NO_MAPCHANGE | TIMER_REPEAT);
 
         //Some checks are needed here for proper operation
-        File file = OpenFile(fingerprintPath, "w+");
-        if(file == null)
+        char buf[PLATFORM_MAX_PATH];
+        strcopy(buf, sizeof(buf), fingerprintPath);
+        for(int i = strlen(buf) - 1; i >= 0; i--)
         {
-                SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
+            if(buf[i] == '\\' || buf[i] == '/')
+            {
+                buf[i] = '\0';
+                break;
+            }
         }
+        Format(logMessageRB, sizeof(logMessageRB), "Folder '%s' creation | Result: %d", buf, CreateDirectory(buf, FPERM_O_READ|FPERM_O_EXEC|FPERM_G_READ|FPERM_G_EXEC|FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC, true, "download"));
+        WriteLog(logMessageRB, LogLevel_Debug);
+
+        File file = OpenFile(fingerprintPath, "w+", true, "download");
+        if(file == null)
+                SetFailState("Unable to create or open fingerprint file '%s'. Please build the path to this file!", fingerprintPath);
+
+        delete file;
 
         //Refer to engine/net_chan.cpp#2136
-        char buf[PLATFORM_MAX_PATH];
-        Format(buf, sizeof(buf), "download/%s", fingerprintPath);
-        if(FileExists(buf))
+        if(FileExists(fingerprintPath, true, "download"))
         {
-            DeleteFile(buf);
-
-            char logMessage[128];
-            Format(logMessage, sizeof(logMessage), "File in 'download' folder deleted: %s", fingerprintPath);
-            WriteLog(logMessage, LogLevel_Debug);
+                int status = DeleteFile(fingerprintPath, true, "download");
+                Format(logMessageRB, sizeof(logMessageRB), "File in 'download' folder deleted: %s | Result: %d", fingerprintPath, status);
+                WriteLog(logMessageRB, LogLevel_Debug);
         }
-        delete file;
 }
 
 public void OnMapEnd()
@@ -442,9 +445,6 @@ void ParseConfigFile()
 
 
         strcopy(fingerprintPath, sizeof(fingerprintPath), configFingerprint);
-        if(engineVersion != Engine_CSGO) //apparently CSGO doesn't know what download folder is, lol
-                Format(configFingerprint, sizeof(configFingerprint), "download/%s", configFingerprint);
-        strcopy(fingerprintDownloadPath, sizeof(fingerprintDownloadPath), configFingerprint);
 
         strcopy(rebanReason, sizeof(rebanReason), configRebanReason);
         strcopy(antitamperKickReason, sizeof(antitamperKickReason), configKickReason);
@@ -546,9 +546,8 @@ public Action Timer_ProcessQueue(Handle tmr, any data)
                 {
                         globalLocked = true;
                         currentUserId = GetClientUserId(client);
-                        char logMessage[128];
-                        Format(logMessage, sizeof(logMessage), "Processing queued client %N, %i", client, client);
-                        WriteLog(logMessage, LogLevel_Debug);
+                        Format(logMessageRB, sizeof(logMessageRB), "Processing queued client %N, %i", client, client);
+                        WriteLog(logMessageRB, LogLevel_Debug);
                         StartProcessingClient(client);
                         return Plugin_Continue;
                 }
@@ -572,6 +571,10 @@ void StartProcessingClient(int client)
         RemoveBanRecordIfExists(client); //if client got to this point, means they're not banned and we can reset is_banned if it's set to 1
         conVarQuerySuccessful = false;
         WriteLog("Requesting client fingerpint via File Network...", LogLevel_Debug);
+        if(FileExists(fingerprintPath, true, "download"))
+        {
+                DeleteFile(fingerprintPath, true, "download");
+        }
         FileNet_RequestFile(client, fingerprintPath, RequestClientFingerprint);
 }
 
@@ -661,18 +664,17 @@ void RequestClientFingerprint(int client, const char[] file, int id, bool succes
         }
 
 
-        File fingerprintFile = OpenFile(fingerprintDownloadPath, "r");
+        File fingerprintFile = OpenFile(fingerprintPath, "r", true, "download");
         if(fingerprintFile == null)
                 SetFailState("Could not find fingerprint file on disk! Should never happen?");
 
         char clientFingerprint[256];
         fingerprintFile.ReadLine(clientFingerprint, sizeof(clientFingerprint));
         fingerprintFile.Close();
-        char logMessage[128];
-        Format(logMessage, sizeof(logMessage), "Received fingerprint %s of client %N. Processing...", clientFingerprint, client);
-        WriteLog(logMessage, LogLevel_Debug);
-        while(FileExists(fingerprintDownloadPath))
-                DeleteFile(fingerprintDownloadPath);
+        Format(logMessageRB, sizeof(logMessageRB), "Received fingerprint %s of client %N. Processing...", clientFingerprint, client);
+        WriteLog(logMessageRB, LogLevel_Debug);
+        if(FileExists(fingerprintPath, true, "download"))
+                DeleteFile(fingerprintPath, true, "download");
 
         ProcessReceivedClientFingerprint(client, clientFingerprint);
 }
@@ -701,9 +703,8 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         {
                                 Format(query, sizeof(query), "INSERT INTO rebanner_ips (ip, fingerprint) VALUES ('%s', '%s')", ip, knownFingerprint);
                                 db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
-                                char logMessage[128];
-                                Format(logMessage, sizeof(logMessage), "Adding new IP (%s) association for client %N", ip, client);
-                                WriteLog(logMessage, LogLevel_Associations);
+                                Format(logMessageRB, sizeof(logMessageRB), "Adding new IP (%s) association for client %N", ip, client);
+                                WriteLog(logMessageRB, LogLevel_Associations);
                                 UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(knownFingerprint, "", ip);
                         }
 
@@ -729,9 +730,8 @@ void ProcessReceivedClientFingerprint(int client, const char[] fingerprint)
                         {
                                 Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid, knownFingerprint);
                                 db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
-                                char logMessage[128];
-                                Format(logMessage, sizeof(logMessage), "Adding new SteamID (%s) association for client %N", steamid, client);
-                                WriteLog(logMessage, LogLevel_Associations);
+                                Format(logMessageRB, sizeof(logMessageRB), "Adding new SteamID (%s) association for client %N", steamid, client);
+                                WriteLog(logMessageRB, LogLevel_Associations);
                                 UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(knownFingerprint, steamid, "");
                         }
                         if(bannedFingerprints.ContainsKey(knownFingerprint))//if this known fingerprint is banned, execute em
@@ -939,10 +939,10 @@ void GenerateLocalFingerprintAndSendToClient(int client, const char[] existingFi
         }
 
 
-        File file = OpenFile(fingerprintPath, "w+");
+        File file = OpenFile(fingerprintPath, "w+", true, "download");
         if(file == null)
         {
-                SetFailState("Unable to create or open fingerprint file '%s'. Please create the file manually!", fingerprintPath);
+                SetFailState("Unable to create or open fingerprint file '%s'. Please build the path to this file!", fingerprintPath);
         }
         file.WriteString(uniqueFingerprint, false);
         file.Flush();
@@ -998,15 +998,11 @@ void OnFingerprintFirstSent(int client, const char[] file, bool success, DataPac
         }
         else
         {
-                char logMessage[128];
-                Format(logMessage, sizeof(logMessage), "Sent fingerprint file of client %N via File Network.", client);
-                WriteLog(logMessage, LogLevel_Debug);
+                Format(logMessageRB, sizeof(logMessageRB), "Sent fingerprint file of client %N via File Network.", client);
+                WriteLog(logMessageRB, LogLevel_Debug);
 
-                while(FileExists(fingerprintPath))
-                        DeleteFile(fingerprintPath);
-
-                while(FileExists(fingerprintDownloadPath))
-                        DeleteFile(fingerprintDownloadPath);
+                if(FileExists(fingerprintPath, true, "download"))
+                        DeleteFile(fingerprintPath, true, "download");
         }
         WriteLog("Processing client fingerprint. Checking for bans...", LogLevel_Debug);
 
@@ -1029,9 +1025,8 @@ void OnFingerprintFirstSent(int client, const char[] file, bool success, DataPac
 void RebanClient(int client, const char[] fingerprint, const char[] reason = BAN_REASON)
 {
         char query[512];
-        char logMessage[128];
-        Format(logMessage, sizeof(logMessage), "Processing ban event of client %N", client);
-        WriteLog(logMessage, LogLevel_Bans);
+        Format(logMessageRB, sizeof(logMessageRB), "Processing ban event of client %N", client);
+        WriteLog(logMessageRB, LogLevel_Bans);
         Format(query, sizeof(query), "SELECT banned_duration, banned_timestamp FROM rebanner_fingerprints WHERE fingerprint = '%s'", fingerprint);
         DataPack pack = new DataPack();
         pack.WriteCell(client);
@@ -1104,9 +1099,8 @@ void CreateOrResendClientFingerprint(int client)
                         db.Query(OnFingerprintRelationSaved, query); //save new ip-fingerprint relation
                         UpdateMainFingerprintRecordWithNewSteamIDAndOrIP(fingerprint, "", ip);
                 }
-                char logMessage[128];
-                Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by SteamID match (%s). Sending via File Network.", fingerprint, steamid2);
-                WriteLog(logMessage, LogLevel_Associations);
+                Format(logMessageRB, sizeof(logMessageRB), "Found existing fingerprint record (%s) by SteamID match (%s). Sending via File Network.", fingerprint, steamid2);
+                WriteLog(logMessageRB, LogLevel_Associations);
 
                 GenerateLocalFingerprintAndSendToClient(client, fingerprint);
         }
@@ -1116,9 +1110,8 @@ void CreateOrResendClientFingerprint(int client)
                 {
                         char fingerprint[128];
                         ipToFingerprintTable.GetString(ip, fingerprint, sizeof(fingerprint));
-                        char logMessage[128];
-                        Format(logMessage, sizeof(logMessage), "Found existing fingerprint record (%s) by IP match (%s). Sending via File Network.", fingerprint, ip);
-                        WriteLog(logMessage, LogLevel_Associations);
+                        Format(logMessageRB, sizeof(logMessageRB), "Found existing fingerprint record (%s) by IP match (%s). Sending via File Network.", fingerprint, ip);
+                        WriteLog(logMessageRB, LogLevel_Associations);
                         GenerateLocalFingerprintAndSendToClient(client, fingerprint);
                         Format(query, sizeof(query), "INSERT INTO rebanner_steamids (steamid2, fingerprint) VALUES ('%s', '%s')", steamid2, fingerprint);
                         db.Query(OnFingerprintRelationSaved, query); //save new steamid-fingerprint relation
@@ -1127,9 +1120,8 @@ void CreateOrResendClientFingerprint(int client)
                 else //if we're out of options and we don't recognize this client. Send the fingerprint that we generated during connection
                 {
 
-                        char logMessage[128];
-                        Format(logMessage, sizeof(logMessage), "Unable to recognize client by SteamID and IP, and unable to query local fingerprint. Sending fingerprint via File Network.", client);
-                        WriteLog(logMessage, LogLevel_Debug);
+                        Format(logMessageRB, sizeof(logMessageRB), "Unable to recognize client by SteamID and IP, and unable to query local fingerprint. Sending fingerprint via File Network.", client);
+                        WriteLog(logMessageRB, LogLevel_Debug);
 
                         GenerateLocalFingerprintAndSendToClient(client);
                 }
@@ -1212,9 +1204,8 @@ bool TryUnbanBySteamIDOrIP(const char[] steamid="", const char[] ip="")
                         if(bannedFingerprints.ContainsKey(fingerprint))
                         {
                                 bannedFingerprints.Remove(fingerprint);
-                                char logMessage[128];
-                                Format(logMessage, sizeof(logMessage), "Removing ban flag from %s", steamid);
-                                WriteLog(logMessage, LogLevel_Debug);
+                                Format(logMessageRB, sizeof(logMessageRB), "Removing ban flag from %s", steamid);
+                                WriteLog(logMessageRB, LogLevel_Debug);
                                 char query[512];
                                 Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET is_banned = 0, banned_duration = 0, banned_timestamp = 0 WHERE fingerprint = '%s'", fingerprint);
                                 db.Query(ClientBanRecordRemoved, query);
@@ -1231,9 +1222,8 @@ bool TryUnbanBySteamIDOrIP(const char[] steamid="", const char[] ip="")
                         if(bannedFingerprints.ContainsKey(fingerprint))
                         {
                                 bannedFingerprints.Remove(fingerprint);
-                                char logMessage[128];
-                                Format(logMessage, sizeof(logMessage), "Removing ban flag from %s", ip);
-                                WriteLog(logMessage, LogLevel_Debug);
+                                Format(logMessageRB, sizeof(logMessageRB), "Removing ban flag from %s", ip);
+                                WriteLog(logMessageRB, LogLevel_Debug);
                                 char query[512];
                                 Format(query, sizeof(query), "UPDATE rebanner_fingerprints SET is_banned = 0, banned_duration = 0, banned_timestamp = 0 WHERE fingerprint = '%s'", fingerprint);
                                 db.Query(ClientBanRecordRemoved, query);
